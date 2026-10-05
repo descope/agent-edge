@@ -40,6 +40,87 @@ Descope handles the rest. The user signs in through your existing login and appr
 
 The blog's Northbound sample app verifies agents in its own backend. These integrations do the same work at the edge, for sites that would rather not change their app.
 
+## How an agent gets a token
+
+There are two paths, depending on whether the agent can send the user to a sign-in page.
+
+### Agents that can open a browser
+
+MCP clients and other OAuth clients, such as Claude connecting to an MCP server, find Descope through the API's 401 and use the standard authorization code flow. They never go through the front door.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as Agent (MCP or OAuth client)
+  participant E as Edge integration
+  participant S as Your API
+  participant D as Descope
+  actor U as User
+  A->>E: GET /api/orders, no token
+  E->>S: Forward with x-descope-agent headers
+  S-->>E: 401
+  E-->>A: 401 + WWW-Authenticate: Bearer resource_metadata="..."
+  A->>E: GET /.well-known/oauth-protected-resource/api
+  E-->>A: Metadata naming Descope as the authorization server
+  A->>U: Opens Descope sign-in in the user's browser
+  U->>D: Signs in with your existing login and approves on the consent screen
+  D-->>A: Authorization code, exchanged for a token
+  A->>E: GET /api/orders with Bearer token
+  E->>S: Forward
+  S->>S: Validate the token and enforce its claims
+  S-->>A: 200
+```
+
+### Agents that can't open a browser
+
+Computer use agents in a cloud VM and agents people reach over text message can't send the user to a sign-in page. They go through the front door, which asks the user for approval on their own device with CIBA.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as Agent
+  participant E as Edge integration
+  participant F as Descope front door
+  participant D as Descope
+  actor U as User
+  participant S as Your API
+  A->>E: GET /login, signed with Web Bot Auth
+  E->>E: Verify the signature against the platform's key directory
+  E-->>A: 302 to the front door with return_to and agent_hint
+  A->>F: Start a connection with the user's email
+  F->>F: Pick the client: trusted platform, unknown platform, or unverified
+  F->>D: CIBA request signed with private_key_jwt, with the user's email and a binding message
+  D-->>F: auth_req_id
+  F-->>A: A handle to check the request's status
+  D->>U: Approval email
+  U->>D: Signs in with your existing login and approves on the consent screen
+  loop Until the user approves or declines
+    A->>F: Check status
+    F->>D: Token request with auth_req_id
+  end
+  D-->>F: Token with the user as sub, the agent as act, and approved limits
+  F-->>A: Token
+  A->>E: API call with Bearer token
+  E->>S: Forward
+  S->>S: Validate the token, enforce its limits, and log the agent
+  S-->>A: Response
+```
+
+Agents that skip the login page and read `/auth.md` or `/agents` get pointed to the same front door, starting at step 4.
+
+## What your backend does
+
+The edge integration finds agents and points them to Descope. Deciding what a token allows is up to your backend:
+
+- **Accept Descope tokens alongside your existing sessions.** Check the signature, issuer, audience, and expiry as you would for any JWT.
+- **Read who is acting.** `sub` is the user. `act` is the agent. `azp` is the client the token was issued to, which names the platform only for trusted platforms with their own inbound app.
+- **Enforce the limits.** Compare actions against the scopes and `authorization_details` in the token, for example rejecting a checkout above the approved amount with a 403 the agent can relay to the user.
+- **Keep sensitive actions human-only.** Refuse password and payment method changes from any token that has an `act` claim.
+- **Record the agent on every write,** so support can see which actions came from the customer and which came from their agent.
+- **Ask for step-up on high-risk actions.** When an order crosses a threshold, start a new CIBA request for that specific order.
+
+The `x-descope-agent` headers are useful for logging and for treating unauthenticated agent traffic differently. Base authorization decisions on the token, not the headers.
+
 ## Platforms
 
 | Platform | Folder | Status |

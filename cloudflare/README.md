@@ -131,7 +131,7 @@ Clients authenticate with `private_key_jwt`, not client secrets. For its own cli
 
 Only agents from a trusted platform have their own inbound app. For them, `azp` in the token names the platform, and disabling the app cuts off that platform alone. For the two shared clients, `azp` names the shared client, not the agent's platform, and disabling one cuts off every agent that uses it.
 
-In every case the user approves the request from their own device, through CIBA, and the token names the user as the subject and the agent as the actor.
+The user approves the request from their own device through CIBA, and the token names the user as the subject and the agent as the actor. Agents that can open a browser, such as MCP clients, skip the front door and use the authorization code flow instead. See [How an agent gets a token](../README.md#how-an-agent-gets-a-token) for both flows.
 
 ## What this does and doesn't do
 
