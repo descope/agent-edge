@@ -13,6 +13,8 @@ It does six things:
 - **Points MCP and OAuth clients at Descope.** Adds `WWW-Authenticate: Bearer resource_metadata="..."` to 401s from your API paths. MCP clients discover the authorization server from that header, so they find Descope on their own even though your API has never heard of it.
 - **Shows browser agents the way in.** Injects a hidden note for agents and a small "Signing in with an AI assistant?" link into your login pages as they stream through, so browser agents find `/agents` without any template changes.
 
+For how this fits together with Descope, see [How it works](../README.md#how-it-works).
+
 It starts in **monitor mode**, which only logs what it sees, so you can deploy it safely and review real agent traffic before changing anything.
 
 The Deploy to Cloudflare button above copies this folder into a new repo in your account and deploys it to `workers.dev`. You still need to fill in the values in `wrangler.toml` and add a route for your zone, as described below.
