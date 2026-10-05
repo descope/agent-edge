@@ -1,0 +1,38 @@
+# Demo stand-in for the Descope-hosted agent front door. Not for production.
+# Run it locally with `npm run dev`, or deploy it with `npm run deploy`.
+
+name = "agent-ready-demo-front-door"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+[dev]
+port = 8788
+
+[observability]
+enabled = true
+
+[vars]
+# Your site's display name, shown on the connect page and in the approval message.
+SITE_NAME = "Example Store"
+
+# The inbound app's Discovery URL, from the Descope Console. The front door reads the
+# CIBA and token endpoints from it.
+DESCOPE_DISCOVERY_URL = "https://api.descope.com/v1/apps/YOUR_PROJECT_ID/.well-known/openid-configuration"
+
+# Inbound app client IDs, one per tier. VERIFIED_CLIENT_ID falls back to UNVERIFIED_CLIENT_ID.
+UNVERIFIED_CLIENT_ID = "YOUR_UNVERIFIED_CLIENT_ID"
+# VERIFIED_CLIENT_ID = ""
+
+# Trusted platforms, as a JSON map from Signature-Agent origin to inbound app client ID.
+TRUSTED_PLATFORMS = "{}"
+
+# Space-separated scopes requested for each tier.
+TRUSTED_SCOPES = "openid"
+VERIFIED_SCOPES = "openid"
+UNVERIFIED_SCOPES = "openid"
+
+# Set these as secrets (wrangler secret put NAME), or in .dev.vars for local runs:
+#   STATE_SECRET         random string that seals request handles
+#   HINT_SIGNING_SECRET  same value as the edge worker's, to trust its agent_hint
+#   PRIVATE_KEY_JWK      for private_key_jwt (npm run generate-key), or
+#   CLIENT_SECRETS       JSON map from client ID to client secret
