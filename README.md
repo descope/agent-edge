@@ -87,15 +87,17 @@ sequenceDiagram
   A->>E: GET /login, signed with Web Bot Auth
   E->>E: Verify the signature against the platform's key directory
   E-->>A: 302 to the front door with return_to and agent_hint
-  A->>F: Start a connection with the user's email
+  A->>F: Opens the front door page
+  F-->>A: Page with an email field and plain-language instructions
+  A->>F: Submits the user's email
   F->>F: Pick the client: trusted platform, unknown platform, or unverified
   F->>D: CIBA request signed with private_key_jwt, with the user's email and a binding message
   D-->>F: auth_req_id
-  F-->>A: A handle to check the request's status
+  F-->>A: Waiting page: the user needs to approve from their email
   D->>U: Approval email
   U->>D: Signs in with your existing login and approves on the consent screen
   loop Until the user approves or declines
-    A->>F: Check status
+    A->>F: Waiting page checks the status
     F->>D: Token request with auth_req_id
   end
   D-->>F: Token with the user as sub, the agent as act, and approved limits
@@ -106,7 +108,9 @@ sequenceDiagram
   S-->>A: Response
 ```
 
-Agents that skip the login page and read `/auth.md` or `/agents` get pointed to the same front door, starting at step 4.
+The front door serves the page with the email field, so the edge integration never handles the user's email. Browser agents fill it in like any form. Agents that read `/auth.md` or `/agents` instead of the login page get pointed to the same page, starting at step 4.
+
+What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead, which means your site has to accept the Descope token and start an agent session from it. The edge integration doesn't do that part.
 
 ## What your backend does
 
