@@ -112,7 +112,7 @@ sequenceDiagram
 
 The front door serves the page with the email field, so the edge integration never handles the user's email. Browser agents fill it in like any form. Agents that read `/auth.md` or `/agents` instead of the login page get pointed to the same page, starting at step 4.
 
-What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead, which means your site has to accept the Descope token and start an agent session from it. The edge integration doesn't do that part.
+What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead. The front door sets the access token as a cookie on your domain, so the agent's browser sends it on every request without adding a header. Your site has to accept the token from that cookie. See [Browser agents get a session cookie](demo/front-door/README.md#browser-agents-get-a-session-cookie).
 
 ## Next steps: accept the tokens in your backend
 

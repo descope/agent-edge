@@ -11,6 +11,11 @@ export interface Env {
   HINT_SIGNING_SECRET?: string;
   PRIVATE_KEY_JWK?: string;
   CLIENT_SECRETS?: string;
+  SESSION_COOKIES?: string;
+  COOKIE_DOMAIN?: string;
+  ACCESS_TOKEN_COOKIE?: string;
+  REFRESH_TOKEN_COOKIE?: string;
+  REFRESH_COOKIE_MAX_AGE?: string;
 }
 
 export type Tier = "trusted" | "verified" | "unverified";
@@ -24,6 +29,7 @@ export interface Config {
   hintSigningSecret?: string;
   privateKey?: JsonWebKey & { kid?: string };
   clientSecrets: Record<string, string>;
+  cookies?: { domain?: string; access: string; refresh: string; refreshMaxAge: number };
 }
 
 function required(name: keyof Env, value: string | undefined): string {
@@ -61,6 +67,12 @@ export function loadConfig(env: Env): Config {
     hintSigningSecret: env.HINT_SIGNING_SECRET || undefined,
     privateKey: json("PRIVATE_KEY_JWK", env.PRIVATE_KEY_JWK, undefined),
     clientSecrets: json("CLIENT_SECRETS", env.CLIENT_SECRETS, {}),
+    cookies: env.SESSION_COOKIES === "false" ? undefined : {
+      domain: env.COOKIE_DOMAIN || undefined,
+      access: env.ACCESS_TOKEN_COOKIE || "DS",
+      refresh: env.REFRESH_TOKEN_COOKIE || "DSR",
+      refreshMaxAge: Number(env.REFRESH_COOKIE_MAX_AGE || 30 * 24 * 3600),
+    },
   };
   if (!config.privateKey && Object.keys(config.clientSecrets).length === 0) {
     throw new Error("Missing configuration: set PRIVATE_KEY_JWK or CLIENT_SECRETS");

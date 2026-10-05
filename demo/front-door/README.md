@@ -14,6 +14,27 @@ It's for demos only. Delete it once Descope's hosted front door is available.
 
 Each request also gets an agent ID (`agt_...`) that's logged with every event, so requests on the shared clients can be told apart.
 
+## Browser agents get a session cookie
+
+A computer use agent uses your site through a browser, like a person does. It shouldn't have to add an `Authorization: Bearer` header to every request, and usually can't.
+
+Descope can't set this cookie itself. With CIBA, the token goes from Descope's token endpoint to the front door, server to server, and never passes through the agent's browser. The one browser response the front door controls is the waiting page's `/status` call in the agent's own browser, so the front door sets the cookies there:
+
+| Cookie | Holds | Scope |
+| --- | --- | --- |
+| `DS` | The access token | `Domain=COOKIE_DOMAIN; Path=/`, so your site receives it on every request. Expires with the token. |
+| `DSR` | The refresh token, sealed with `STATE_SECRET` | The front door's `/refresh` only. It never reaches your site, and the browser can't read it. |
+
+Both are `HttpOnly` and `SameSite=Lax`, and `Secure` over https. The names default to `DS` and `DSR`, the cookie names Descope's SDKs use, and you can change them with `ACCESS_TOKEN_COOKIE` and `REFRESH_TOKEN_COOKIE`.
+
+For this to work:
+
+- **The front door has to be on a subdomain of your site,** such as `agents.example.com` for `example.com`, with `COOKIE_DOMAIN = "example.com"`. A browser won't send a cookie set by `workers.dev` to your site. Add the front door as a custom domain on your zone instead.
+- **Your site has to accept the token from the cookie.** Validate it the same way as a bearer token: with a Descope backend SDK reading the `DS` cookie, or at a gateway that reads it from the cookie.
+- **Refreshing goes through the front door.** Refreshing needs the front door's client credentials, so the browser can't do it alone. When the access token expires, send the browser to `https://agents.example.com/refresh?return_to=<page>`. The front door uses the `DSR` cookie, sets a new `DS`, and redirects back. `POST /refresh` does the same and returns JSON. If the refresh fails, both cookies are cleared and the agent has to connect again.
+
+Agents that call your API directly still get the access token in the `/status` JSON and send it as a bearer token. Turn cookies off with `SESSION_COOKIES = "false"`.
+
 ```mermaid
 sequenceDiagram
   autonumber
@@ -80,6 +101,7 @@ curl "http://localhost:8788/status?handle=<handle from the response>"
 | `POST /connect` | Starts a CIBA request. Takes a form post or JSON `{ "email": "...", "agent_hint": "..." }`. JSON callers get `{ handle, code, agent_id, tier, status_url, interval, expires_in }`. |
 | `GET /status?handle=...` | Polls Descope. Returns `pending` with the `interval` to wait, `approved` with the access token, `denied`, `expired`, or `error`. If Descope asks it to slow down, `pending` also includes a new `handle` with a longer interval; use it for later polls. |
 | `GET /jwks.json` | The front door's public key, for registering `private_key_jwt` with your inbound apps. |
+| `GET` or `POST /refresh` | Uses the `DSR` cookie to get a new access token and set a new `DS` cookie. `GET` with `return_to` redirects back; `POST` returns JSON. |
 
 ## What it leaves out
 
@@ -89,7 +111,8 @@ The real front door needs more than this demo has:
 - **Whoever holds the handle gets the token.** The handle is the encrypted request state. It isn't tied to the agent that started the request.
 - **No nonce replay cache** for Web Bot Auth signatures, and no verification of key directory signatures.
 - **The agent ID isn't in the token yet.** It's logged, and only appears in the token if Descope is set up to add it as a custom claim.
-- **No refresh.** The agent gets a fresh token by starting again.
+- **Agents calling your API directly can't refresh.** The refresh token only lives in the browser cookie, so they get a fresh token by starting again.
+- **No sign-out.** There's no endpoint yet to revoke the tokens and clear the cookies.
 
 ## Open questions for the real front door
 

@@ -1,9 +1,9 @@
 import { loadConfig, type Config, type Env, type Tier } from "./config";
-import { pollToken, startCiba } from "./descope";
+import { pollToken, refreshTokens, startCiba, type TokenSet } from "./descope";
 import { randomCode } from "./encoding";
 import { verifyHint } from "./hint";
 import { connectPage, waitingPage } from "./pages";
-import { seal, unseal, type PendingRequest } from "./state";
+import { seal, unseal, type PendingRequest, type RefreshState } from "./state";
 import { verifiedSignatureAgent } from "./webBotAuth";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -29,6 +29,9 @@ export default {
       if (request.method === "POST" && url.pathname === "/connect") return await connect(request, config);
       if (request.method === "GET" && url.pathname === "/status") return await status(url, config);
       if (request.method === "GET" && url.pathname === "/jwks.json") return jwks(config);
+      if ((request.method === "GET" || request.method === "POST") && url.pathname === "/refresh") {
+        return await refresh(request, url, config);
+      }
       return json({ error: "not_found" }, 404);
     } catch (error) {
       console.error(JSON.stringify({ event: "error", path: url.pathname, error: String(error) }));
@@ -86,7 +89,7 @@ async function connect(request: Request, config: Config): Promise<Response> {
     verified_by: agent.source,
   }));
 
-  if (!wantsJson) return waitingPage(config.siteName, { handle, code, interval: ciba.interval, returnTo });
+  if (!wantsJson) return waitingPage(config.siteName, { handle, code, interval: ciba.interval, returnTo, cookies: Boolean(config.cookies) });
   return json({
     handle,
     code,
@@ -113,8 +116,78 @@ async function status(url: URL, config: Config): Promise<Response> {
   }
 
   console.log(JSON.stringify({ event: `connect_${result.status}`, agent_id: pending.agentId, tier: pending.tier }));
-  if (result.status === "approved") return json({ status: "approved", agent_id: pending.agentId, ...result.token });
+  if (result.status === "approved") {
+    const { refresh_token: refreshToken, ...token } = result.token;
+    const response = json({ status: "approved", agent_id: pending.agentId, ...token });
+    await setSessionCookies(response, url, config, result.token, refreshToken && { refreshToken, clientId: pending.clientId, agentId: pending.agentId });
+    return response;
+  }
   return json(result);
+}
+
+/**
+ * Browser agents use the site like a person does, so the access token goes in a cookie the
+ * site can read, and the browser sends it without the agent adding a header. Set COOKIE_DOMAIN
+ * to the site's domain, with the front door on a subdomain of it. The refresh token is sealed
+ * and scoped to the front door's /refresh, so it never reaches the site.
+ */
+async function setSessionCookies(
+  response: Response,
+  url: URL,
+  config: Config,
+  token: TokenSet,
+  refreshState: RefreshState | undefined | "",
+): Promise<void> {
+  const c = config.cookies;
+  if (!c) return;
+  const secure = url.protocol === "https:" ? "; Secure" : "";
+  const domain = c.domain ? `; Domain=${c.domain}` : "";
+  const accessMaxAge = token.expires_in ?? 600;
+  response.headers.append("set-cookie",
+    `${c.access}=${token.access_token}; Path=/${domain}; Max-Age=${accessMaxAge}; HttpOnly${secure}; SameSite=Lax`);
+  if (refreshState) {
+    const sealed = await seal(refreshState, config.stateSecret);
+    response.headers.append("set-cookie",
+      `${c.refresh}=${sealed}; Path=/refresh; Max-Age=${c.refreshMaxAge}; HttpOnly${secure}; SameSite=Lax`);
+  }
+}
+
+function clearSessionCookies(response: Response, url: URL, config: Config): void {
+  const c = config.cookies;
+  if (!c) return;
+  const secure = url.protocol === "https:" ? "; Secure" : "";
+  const domain = c.domain ? `; Domain=${c.domain}` : "";
+  response.headers.append("set-cookie", `${c.access}=; Path=/${domain}; Max-Age=0; HttpOnly${secure}; SameSite=Lax`);
+  response.headers.append("set-cookie", `${c.refresh}=; Path=/refresh; Max-Age=0; HttpOnly${secure}; SameSite=Lax`);
+}
+
+/**
+ * Refreshes the browser session from the refresh cookie. POST returns JSON. GET redirects to
+ * return_to, so a site can send a browser with an expired access token here and get it back.
+ */
+async function refresh(request: Request, url: URL, config: Config): Promise<Response> {
+  const returnTo = safeReturnTo(url.searchParams.get("return_to"));
+  const name = config.cookies?.refresh ?? "DSR";
+  const raw = (request.headers.get("cookie") ?? "")
+    .split(/;\s*/)
+    .find((part) => part.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
+  const state = raw ? await unseal<RefreshState>(raw, config.stateSecret) : undefined;
+  const token = state && (await refreshTokens(config, state.clientId, state.refreshToken));
+
+  if (!state || !token) {
+    const response = json({ error: "refresh_failed", message: "Connect the agent again." }, 401);
+    clearSessionCookies(response, url, config);
+    return response;
+  }
+
+  console.log(JSON.stringify({ event: "session_refreshed", agent_id: state.agentId }));
+  const response = returnTo && request.method === "GET"
+    ? new Response(null, { status: 302, headers: { location: returnTo, "cache-control": "no-store" } })
+    : json({ status: "refreshed", expires_in: token.expires_in });
+  // Keep the old refresh token unless Descope rotated it.
+  await setSessionCookies(response, url, config, token, { ...state, refreshToken: token.refresh_token ?? state.refreshToken });
+  return response;
 }
 
 interface Agent {

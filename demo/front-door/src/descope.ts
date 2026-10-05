@@ -97,9 +97,28 @@ export async function startCiba(
   };
 }
 
+export interface TokenSet {
+  access_token: string;
+  token_type: string;
+  expires_in?: number;
+  scope?: string;
+  /** Kept by the front door, in a sealed cookie. Never returned to the agent. */
+  refresh_token?: string;
+}
+
+function tokenSet(body: Record<string, unknown>): TokenSet {
+  return {
+    access_token: String(body.access_token),
+    token_type: String(body.token_type ?? "Bearer"),
+    expires_in: body.expires_in as number | undefined,
+    scope: body.scope as string | undefined,
+    refresh_token: body.refresh_token as string | undefined,
+  };
+}
+
 export type PollResult =
   | { status: "pending"; slowDown?: boolean }
-  | { status: "approved"; token: { access_token: string; token_type: string; expires_in?: number; scope?: string } }
+  | { status: "approved"; token: TokenSet }
   | { status: "denied" | "expired" }
   | { status: "error"; error: string };
 
@@ -111,18 +130,7 @@ export async function pollToken(config: Config, clientId: string, authReqId: str
     grant_type: CIBA_GRANT,
     auth_req_id: authReqId,
   });
-  if (status === 200 && typeof body.access_token === "string") {
-    // The refresh token stays here: the agent couldn't use it without the front door's client credentials.
-    return {
-      status: "approved",
-      token: {
-        access_token: body.access_token,
-        token_type: String(body.token_type ?? "Bearer"),
-        expires_in: body.expires_in as number | undefined,
-        scope: body.scope as string | undefined,
-      },
-    };
-  }
+  if (status === 200 && typeof body.access_token === "string") return { status: "approved", token: tokenSet(body) };
   switch (body.error) {
     case "authorization_pending":
       return { status: "pending" };
@@ -136,4 +144,16 @@ export async function pollToken(config: Config, clientId: string, authReqId: str
     default:
       return { status: "error", error: `${String(body.error ?? status)} ${String(body.error_description ?? "")}`.trim() };
   }
+}
+
+/** Exchanges a refresh token for new tokens. Needs the front door's client credentials. */
+export async function refreshTokens(config: Config, clientId: string, refreshToken: string): Promise<TokenSet | undefined> {
+  const discovery = await discover(config);
+  const endpoint = discovery.token_endpoint;
+  const { status, body } = await post(endpoint, {
+    ...(await clientAuth(config, clientId, endpoint, discovery.issuer)),
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  });
+  return status === 200 && typeof body.access_token === "string" ? tokenSet(body) : undefined;
 }

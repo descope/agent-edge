@@ -18,8 +18,11 @@ async function key(secret: string): Promise<CryptoKey> {
   return crypto.subtle.importKey("raw", digest, "AES-GCM", false, ["encrypt", "decrypt"]);
 }
 
-/** Encrypts the request so the front door needs no storage. Whoever holds the handle can collect the token. */
-export async function seal(request: PendingRequest, secret: string): Promise<string> {
+/**
+ * Encrypts state so the front door needs no storage. Used for request handles (whoever holds
+ * the handle can collect the token) and for the refresh cookie.
+ */
+export async function seal(request: object, secret: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await key(secret), utf8(JSON.stringify(request)));
   const out = new Uint8Array(12 + data.byteLength);
@@ -28,7 +31,7 @@ export async function seal(request: PendingRequest, secret: string): Promise<str
   return base64Url(out);
 }
 
-export async function unseal(handle: string, secret: string): Promise<PendingRequest | undefined> {
+export async function unseal<T = PendingRequest>(handle: string, secret: string): Promise<T | undefined> {
   try {
     const bytes = fromBase64Url(handle);
     const data = await crypto.subtle.decrypt(
@@ -36,8 +39,15 @@ export async function unseal(handle: string, secret: string): Promise<PendingReq
       await key(secret),
       bytes.slice(12),
     );
-    return JSON.parse(new TextDecoder().decode(data)) as PendingRequest;
+    return JSON.parse(new TextDecoder().decode(data)) as T;
   } catch {
     return undefined;
   }
+}
+
+/** What the refresh cookie holds, sealed so the browser can't read or change it. */
+export interface RefreshState {
+  refreshToken: string;
+  clientId: string;
+  agentId: string;
 }

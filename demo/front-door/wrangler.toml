@@ -31,6 +31,16 @@ TRUSTED_SCOPES = "openid"
 VERIFIED_SCOPES = "openid"
 UNVERIFIED_SCOPES = "openid"
 
+# Session cookies for browser agents. On approval, the front door sets the access token as a
+# cookie the site can read (and a sealed refresh cookie only it can read), so a computer use
+# agent's browser is signed in without adding an Authorization header.
+# Set COOKIE_DOMAIN to your site's domain, with the front door on a subdomain of it.
+# Leave it unset for local runs: browsers reject Domain=localhost, and cookies ignore ports.
+SESSION_COOKIES = "true"
+# COOKIE_DOMAIN = "example.com"
+ACCESS_TOKEN_COOKIE = "DS"
+REFRESH_TOKEN_COOKIE = "DSR"
+
 # Set these as secrets (wrangler secret put NAME), or in .dev.vars for local runs:
 #   STATE_SECRET         random string that seals request handles
 #   HINT_SIGNING_SECRET  same value as the edge worker's, to trust its agent_hint
