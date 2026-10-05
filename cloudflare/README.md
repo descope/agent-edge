@@ -127,7 +127,7 @@ The front door then gets the agent a token in one of three ways:
 - **Verified with a Client ID Metadata Document.** The agent's metadata URL serves as its client ID.
 - **Unverified.** All unverified agents share one client with limited access. The front door gives each request its own agent ID, so you can still tell agents apart and revoke one without affecting the rest.
 
-The front door keeps all client credentials and makes the token requests itself, so no secret is ever handed to an agent. Agents prove who they are on each request with Web Bot Auth. Tokens still identify the platform through `azp`, and disabling a platform's app cuts off that platform alone.
+Clients authenticate with `private_key_jwt`, not client secrets. For its own clients, the front door signs the assertions with a key only it holds, publishes the public half as a JWKS that each inbound app is registered with, and makes the token requests itself, so agents never receive client credentials. A CIMD agent signs with its own key from its metadata document instead. Agents prove who they are on each request with Web Bot Auth. Tokens still identify the platform through `azp`, and disabling a platform's app cuts off that platform alone.
 
 In every case the user approves the request from their own device, through CIBA, and the token names the user as the subject and the agent as the actor.
 
