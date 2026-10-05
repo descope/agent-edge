@@ -122,9 +122,12 @@ The front door is a separate Descope-hosted service, so this worker stays small.
 
 The front door then gets the agent a token in one of three ways:
 
-- **Verified with Web Bot Auth, from a platform you trust.** The agent gets its own inbound app, one per platform.
+- **Verified with Web Bot Auth, from a platform you trust.** Each trusted platform has its own inbound app, created when you add the platform to your trusted list. The front door picks the app that matches the agent's `Signature-Agent` origin.
+- **Verified with Web Bot Auth, from a platform you don't know.** These agents share one client with tighter limits.
 - **Verified with a Client ID Metadata Document.** The agent's metadata URL serves as its client ID.
 - **Unverified.** All unverified agents share one client with limited access. The front door gives each request its own agent ID, so you can still tell agents apart and revoke one without affecting the rest.
+
+The front door keeps all client credentials and makes the token requests itself, so no secret is ever handed to an agent. Agents prove who they are on each request with Web Bot Auth. Tokens still identify the platform through `azp`, and disabling a platform's app cuts off that platform alone.
 
 In every case the user approves the request from their own device, through CIBA, and the token names the user as the subject and the agent as the actor.
 
