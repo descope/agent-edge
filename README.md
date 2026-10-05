@@ -114,11 +114,21 @@ The front door serves the page with the email field, so the edge integration nev
 
 What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead, which means your site has to accept the Descope token and start an agent session from it. The edge integration doesn't do that part.
 
-## What your backend does
+## Next steps: accept the tokens in your backend
 
-The edge integration finds agents and points them to Descope. Deciding what a token allows is up to your backend:
+With the edge integration in place, agents have a standard way to sign in to your app on a user's behalf, and every token they get says which agent is acting for which user. The last step is on your side: accept those tokens.
 
-- **Accept Descope tokens alongside your existing sessions.** Check the signature, issuer, audience, and expiry as you would for any JWT.
+### Validate the token
+
+Descope issues standard OIDC tokens, so validate them whichever way fits your stack:
+
+- **With a Descope backend SDK.** Validate the token in your app, the same way you would a Descope session.
+- **At an API gateway.** Any gateway that validates JWTs against a JWKS, such as Kong, Envoy, or AWS API Gateway's JWT authorizer, can check the token using your Descope project's discovery document and pass the claims to your services. Your app doesn't change.
+
+Either way, check the signature, issuer, audience, and expiry, and accept Descope tokens alongside your existing sessions.
+
+### Use the claims
+
 - **Read who is acting.** `sub` is the user. `act` is the agent. `azp` is the client the token was issued to, which names the platform only for trusted platforms with their own inbound app.
 - **Enforce the limits.** Compare actions against the scopes and `authorization_details` in the token, for example rejecting a checkout above the approved amount with a 403 the agent can relay to the user.
 - **Keep sensitive actions human-only.** Refuse password and payment method changes from any token that has an `act` claim.
