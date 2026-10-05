@@ -113,21 +113,23 @@ The worker strips any incoming copies of these headers, so only the worker can s
 
 ## The front door
 
-The front door is a separate Descope-hosted service, so this worker stays small. In route mode, agents on a login page get a `302` to `FRONT_DOOR_URL` with two query parameters:
+The front door is a separate Descope-hosted service, so this worker stays small. In route mode, agents on a login page get a `302` to `FRONT_DOOR_URL`. The redirect always includes `return_to`, and includes `agent_hint` only when `HINT_SIGNING_SECRET` is set:
 
 | Parameter | Value |
 | --- | --- |
-| `return_to` | The page the agent was trying to reach. |
-| `agent_hint` | Only sent if `HINT_SIGNING_SECRET` is set. `base64url(JSON) + "." + base64url(HMAC-SHA256)`, where the JSON is `{ status, signature_agent, iat, exp }` and expires after 5 minutes. |
+| `return_to` | Always sent. The page the agent was trying to reach. |
+| `agent_hint` | Optional. `base64url(JSON) + "." + base64url(HMAC-SHA256)`, where the JSON is `{ status, signature_agent, iat, exp }` and expires after 5 minutes. `signature_agent` is only set for agents whose Web Bot Auth signature verified. |
 
-The front door then gets the agent a token in one of three ways:
+The front door then gets the agent a token in one of four ways:
 
 - **Verified with Web Bot Auth, from a platform you trust.** Each trusted platform has its own inbound app, created when you add the platform to your trusted list. The front door picks the app that matches the agent's `Signature-Agent` origin.
-- **Verified with Web Bot Auth, from a platform you don't know.** These agents share one client with tighter limits.
+- **Verified, from a platform you don't know.** This covers Web Bot Auth signatures from platforms not on your list, and Cloudflare-verified bots, which carry no `Signature-Agent`. These agents share one client with tighter limits.
 - **Verified with a Client ID Metadata Document.** The agent's metadata URL serves as its client ID.
-- **Unverified.** All unverified agents share one client with limited access. The front door gives each request its own agent ID, so you can still tell agents apart and revoke one without affecting the rest.
+- **Unverified.** Agents with a rejected signature or only a user-agent match share one client with limited access. The front door gives each request its own ID, so you can trace and revoke the access granted by one request without affecting others. The ID doesn't follow an agent across requests, so it can't be used to block a specific agent.
 
-Clients authenticate with `private_key_jwt`, not client secrets. For its own clients, the front door signs the assertions with a key only it holds, publishes the public half as a JWKS that each inbound app is registered with, and makes the token requests itself, so agents never receive client credentials. A CIMD agent signs with its own key from its metadata document instead. Agents prove who they are on each request with Web Bot Auth. Tokens still identify the platform through `azp`, and disabling a platform's app cuts off that platform alone.
+Clients authenticate with `private_key_jwt`, not client secrets. For its own clients, the front door signs the assertions with a key only it holds, publishes the public half as a JWKS that each inbound app is registered with, and makes the token requests itself, so agents never receive client credentials. A CIMD agent signs with its own key from its metadata document instead.
+
+Only agents from a trusted platform have their own inbound app. For them, `azp` in the token names the platform, and disabling the app cuts off that platform alone. For the two shared clients, `azp` names the shared client, not the agent's platform, and disabling one cuts off every agent that uses it.
 
 In every case the user approves the request from their own device, through CIBA, and the token names the user as the subject and the agent as the actor.
 
