@@ -111,6 +111,23 @@ To send a properly signed request, use Cloudflare's [web-bot-auth](https://githu
 
 The worker strips any incoming copies of these headers, so only the worker can set them. They're only trustworthy if your origin accepts traffic exclusively through Cloudflare.
 
+## The front door
+
+The front door is a separate Descope-hosted service, so this worker stays small. In route mode, agents on a login page get a `302` to `FRONT_DOOR_URL` with two query parameters:
+
+| Parameter | Value |
+| --- | --- |
+| `return_to` | The page the agent was trying to reach. |
+| `agent_hint` | Only sent if `HINT_SIGNING_SECRET` is set. `base64url(JSON) + "." + base64url(HMAC-SHA256)`, where the JSON is `{ status, signature_agent, iat, exp }` and expires after 5 minutes. |
+
+The front door then gets the agent a token in one of three ways:
+
+- **Verified with Web Bot Auth, from a platform you trust.** The agent gets its own inbound app, one per platform.
+- **Verified with a Client ID Metadata Document.** The agent's metadata URL serves as its client ID.
+- **Unverified.** All unverified agents share one client with limited access. The front door gives each request its own agent ID, so you can still tell agents apart and revoke one without affecting the rest.
+
+In every case the user approves the request from their own device, through CIBA, and the token names the user as the subject and the agent as the actor.
+
 ## What this does and doesn't do
 
 - **It identifies agents. It doesn't authorize them.** Limits and permissions come from the tokens Descope issues through the front door, and your app or gateway enforces them.
