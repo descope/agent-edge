@@ -1,0 +1,62 @@
+# agent-ready Cloudflare Worker
+# Clone this project, fill in the values below, then run `npm run deploy`.
+
+name = "agent-ready-cloudflare"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# Keep agent detection logs so you can review them in the Cloudflare dashboard.
+[observability]
+enabled = true
+
+# Run the worker in front of your site. Replace example.com with your zone.
+# routes = [
+#   { pattern = "example.com/*", zone_name = "example.com" }
+# ]
+
+[vars]
+# "monitor" detects and logs agents without changing any traffic.
+# "route" also redirects agents from your login pages and blocks sensitive paths.
+MODE = "monitor"
+
+# Your site's display name, used on the /agents page and in auth.md.
+SITE_NAME = "Example Store"
+
+# Your Descope authorization server (issuer) URL.
+DESCOPE_ISSUER = "https://api.descope.com/YOUR_PROJECT_ID"
+
+# The Descope-hosted agent front door, usually on a subdomain you point at Descope.
+FRONT_DOOR_URL = "https://agents.example.com"
+
+# The resource identifier agents request tokens for.
+RESOURCE_URL = "https://example.com/api"
+
+# Comma-separated lists.
+SCOPES_SUPPORTED = "orders:read,cart:write"
+AUTHORIZATION_DETAILS_TYPES = "purchase"
+
+# Paths where a human would sign in. Agents that hit these get sent to the front door in route mode.
+# A trailing * matches a prefix.
+LOGIN_PATHS = "/login,/signin,/account/login"
+
+# API paths. 401s from these get a WWW-Authenticate header pointing to the metadata,
+# which is how MCP and OAuth clients discover Descope on their own.
+API_PATHS = "/api/*"
+
+# Add a hidden note for agents, plus a small "Signing in with an AI assistant?" link,
+# to the login pages listed above. Set LOGIN_HINT_VISIBLE to "false" to keep only the hidden note.
+INJECT_LOGIN_HINT = "true"
+LOGIN_HINT_VISIBLE = "true"
+
+# Paths agents should never use directly, such as password and payment changes.
+BLOCKED_AGENT_PATHS = "/account/password,/account/payment-methods*"
+
+# User-agent substrings that suggest an unverified agent. Adjust to the traffic you see.
+AGENT_USER_AGENT_PATTERNS = "ChatGPT-User,OAI-SearchBot,Claude-User,Perplexity-User,HeadlessChrome"
+
+# Treat Cloudflare-verified bots in these categories as verified agents (requires Bot Management fields).
+TRUST_CLOUDFLARE_VERIFIED_BOTS = "true"
+CLOUDFLARE_AGENT_BOT_CATEGORIES = "AI Assistant"
+
+# Optional: a shared secret for signing the agent hint passed to the front door.
+# Set it as a secret rather than a var:  wrangler secret put HINT_SIGNING_SECRET

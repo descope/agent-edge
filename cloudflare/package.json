@@ -1,0 +1,23 @@
+{
+  "name": "agent-ready-cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker that verifies AI agents, publishes agent discovery files, and routes agents to a Descope-hosted front door.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "test:e2e": "tsx --test test/e2e/*.test.ts"
+  },
+  "dependencies": {
+    "web-bot-auth": "^0.2.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261001.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
+  }
+}
