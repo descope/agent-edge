@@ -8,7 +8,7 @@ It does six things:
 
 - **Verifies agents.** Checks Web Bot Auth signatures (RFC 9421) against each agent platform's published keys, and falls back to Cloudflare's verified bot signal and user-agent hints.
 - **Publishes discovery files.** Serves `/.well-known/oauth-protected-resource`, `/auth.md`, and an `/agents` page that point agents at your Descope authorization server.
-- **Routes agents.** Sends agents that land on your human login page to the Descope-hosted front door, and blocks agents from sensitive pages such as password and payment changes.
+- **Routes agents.** Blocks agents from sensitive pages such as password and payment changes. Once the Descope-hosted front door is available, it also sends agents that land on your human login page there.
 - **Tells your origin.** Adds `x-descope-agent` and `x-descope-agent-origin` headers so your app can see which requests came from agents.
 - **Points MCP and OAuth clients at Descope.** Adds `WWW-Authenticate: Bearer resource_metadata="..."` to 401s from your API paths. MCP clients discover the authorization server from that header, so they find Descope on their own even though your API has never heard of it.
 - **Shows browser agents the way in.** Injects a hidden note for agents and a small "Signing in with an AI assistant?" link into your login pages as they stream through, so browser agents find `/agents` without any template changes.
@@ -22,7 +22,7 @@ The Deploy to Cloudflare button above copies this folder into a new repo in your
 ## Before you start
 
 - A site proxied through Cloudflare.
-- A Descope project with the agent front door set up on a subdomain, such as `agents.example.com`.
+- A Descope project.
 - Node.js 20 or later.
 
 ## Setup
@@ -35,11 +35,11 @@ The Deploy to Cloudflare button above copies this folder into a new repo in your
    npm install
    ```
 
-2. **Fill in `wrangler.toml`.** At minimum, set `DESCOPE_ISSUER`, `FRONT_DOOR_URL`, `RESOURCE_URL`, and `SITE_NAME`. Adjust `LOGIN_PATHS` and `BLOCKED_AGENT_PATHS` to match your site.
+2. **Fill in `wrangler.toml`.** At minimum, set `DESCOPE_ISSUER`, `RESOURCE_URL`, and `SITE_NAME`. Leave `FRONT_DOOR_URL` unset until the front door is available. Adjust `LOGIN_PATHS` and `BLOCKED_AGENT_PATHS` to match your site.
 
 3. **Add your route.** Uncomment the `routes` block and replace `example.com` with your zone.
 
-4. **Optionally add the hint secret,** which lets the front door trust what the worker verified:
+4. **Optionally add the hint secret,** which lets the front door trust what the worker verified. You only need it once `FRONT_DOOR_URL` is set:
 
    ```sh
    npx wrangler secret put HINT_SIGNING_SECRET
@@ -74,7 +74,7 @@ A quick manual check against a deployed worker:
 ```sh
 curl https://example.com/.well-known/oauth-protected-resource
 curl https://example.com/auth.md
-curl -I -A "HeadlessChrome" https://example.com/login   # 302 to the front door in route mode
+curl -I -A "HeadlessChrome" https://example.com/login   # 302 to the front door in route mode, if FRONT_DOOR_URL is set
 curl -I https://example.com/api/orders                  # 401 with WWW-Authenticate: Bearer resource_metadata=...
 ```
 
@@ -87,7 +87,7 @@ To send a properly signed request, use Cloudflare's [web-bot-auth](https://githu
 | `MODE` | `monitor` logs only. `route` also redirects and blocks. |
 | `SITE_NAME` | Display name on the `/agents` page and in `auth.md`. |
 | `DESCOPE_ISSUER` | Your Descope authorization server URL. |
-| `FRONT_DOOR_URL` | The Descope-hosted agent front door. |
+| `FRONT_DOOR_URL` | The Descope-hosted agent front door. Optional, and not available yet. Without it, agents on login pages aren't redirected. |
 | `RESOURCE_URL` | The resource identifier agents request tokens for. |
 | `SCOPES_SUPPORTED` | Comma-separated scopes listed in the metadata. |
 | `AUTHORIZATION_DETAILS_TYPES` | Comma-separated RAR types, such as `purchase`. |
@@ -113,7 +113,9 @@ The worker strips any incoming copies of these headers, so only the worker can s
 
 ## The front door
 
-The front door is a separate Descope-hosted service, so this worker stays small. In route mode, agents on a login page get a `302` to `FRONT_DOOR_URL`. The redirect always includes `return_to`, and includes `agent_hint` only when `HINT_SIGNING_SECRET` is set:
+> **Coming soon.** Descope is building the front door, and it isn't available yet. Until it is, leave `FRONT_DOOR_URL` unset. Discovery, the API challenge, origin headers, the login hint, and blocked paths all work without it, so MCP and OAuth clients can already connect through the authorization code flow. This section describes how the worker will hand off to the front door once it ships.
+
+The front door is a separate Descope-hosted service, so this worker stays small. With `FRONT_DOOR_URL` set, in route mode, agents on a login page get a `302` to `FRONT_DOOR_URL`. The redirect always includes `return_to`, and includes `agent_hint` only when `HINT_SIGNING_SECRET` is set:
 
 | Parameter | Value |
 | --- | --- |
@@ -143,7 +145,7 @@ The user approves the request from their own device through CIBA, and the token 
 - **The discovery challenge is a pointer, not protection.** It tells clients where to get a token. Your API or a gateway still has to check the token.
 - **Check for path conflicts.** If your site already serves `/agents` or `/auth.md`, rename them or remove those routes from `src/index.ts`.
 - **Cloudflare also verifies Web Bot Auth.** If your zone uses Cloudflare's own verification, review Cloudflare's guidance on running your own verification alongside it.
-- **The agent hint needs front door support.** It's optional, and the front door ignores it unless configured with the same secret.
+- **The agent hint needs the front door.** It's optional, only sent once `FRONT_DOOR_URL` is set, and ignored unless the front door is configured with the same secret.
 
 ## Project layout
 

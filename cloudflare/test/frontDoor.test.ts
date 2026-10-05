@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import { afterEach, test } from "node:test";
+import { loadConfig, type Env } from "../src/config";
+import { agentsPage, authMd } from "../src/discovery";
+import worker from "../src/index";
+
+// The hosted front door isn't available yet, so everything else has to work without it.
+const env: Env = {
+  DESCOPE_ISSUER: "https://api.descope.com/P123",
+  RESOURCE_URL: "https://example.com/api",
+  MODE: "route",
+  LOGIN_PATHS: "/login",
+  AGENT_USER_AGENT_PATTERNS: "HeadlessChrome",
+};
+
+const realFetch = globalThis.fetch;
+afterEach(() => { globalThis.fetch = realFetch; });
+
+const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
+const agentLogin = () =>
+  new Request("https://example.com/login", { headers: { "user-agent": "HeadlessChrome/126.0" } });
+
+test("the front door URL is optional", () => {
+  assert.equal(loadConfig(env).frontDoorUrl, undefined);
+});
+
+test("auth.md and /agents don't mention a front door that isn't configured", async () => {
+  const config = loadConfig(env);
+  const md = await authMd(config).text();
+  assert.doesNotMatch(md, /start a connection/);
+  assert.match(md, /oauth-protected-resource/);
+  const html = await agentsPage(config).text();
+  assert.doesNotMatch(html, /Connect your agent/);
+  assert.match(html, /auth\.md/);
+});
+
+test("without a front door, agents on login pages pass through in route mode", async () => {
+  const forwarded: Request[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    forwarded.push(new Request(input as RequestInfo, init));
+    return new Response("ok");
+  }) as typeof fetch;
+  const response = await worker.fetch(agentLogin() as never, env, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(forwarded.length, 1);
+  // Set only when the worker ran, not when it failed open on bad configuration.
+  assert.equal(forwarded[0].headers.get("x-descope-agent"), "unverified");
+});
+
+test("with a front door, agents on login pages are redirected in route mode", async () => {
+  const response = await worker.fetch(agentLogin() as never, { ...env, FRONT_DOOR_URL: "https://agents.example.com" }, ctx);
+  assert.equal(response.status, 302);
+  assert.match(response.headers.get("location") ?? "", /^https:\/\/agents\.example\.com\//);
+});

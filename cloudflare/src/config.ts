@@ -2,7 +2,8 @@ export interface Env {
   MODE?: string;
   SITE_NAME?: string;
   DESCOPE_ISSUER: string;
-  FRONT_DOOR_URL: string;
+  /** The hosted agent front door. Optional until it's available. */
+  FRONT_DOOR_URL?: string;
   RESOURCE_URL: string;
   SCOPES_SUPPORTED?: string;
   AUTHORIZATION_DETAILS_TYPES?: string;
@@ -25,7 +26,7 @@ export interface Config {
   mode: Mode;
   siteName: string;
   issuer: string;
-  frontDoorUrl: string;
+  frontDoorUrl?: string;
   resourceUrl: string;
   scopes: string[];
   authorizationDetailsTypes: string[];
@@ -74,7 +75,7 @@ export function loadConfig(env: Env): Config {
     mode: env.MODE === "route" ? "route" : "monitor",
     siteName: env.SITE_NAME ?? "This site",
     issuer: requiredUrl("DESCOPE_ISSUER", env.DESCOPE_ISSUER),
-    frontDoorUrl: requiredUrl("FRONT_DOOR_URL", env.FRONT_DOOR_URL),
+    frontDoorUrl: env.FRONT_DOOR_URL ? requiredUrl("FRONT_DOOR_URL", env.FRONT_DOOR_URL) : undefined,
     resourceUrl: requiredUrl("RESOURCE_URL", env.RESOURCE_URL),
     scopes: list(env.SCOPES_SUPPORTED),
     authorizationDetailsTypes: list(env.AUTHORIZATION_DETAILS_TYPES),

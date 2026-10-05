@@ -39,8 +39,8 @@ ${config.siteName} supports delegated access for AI agents acting on behalf of i
 
 - Do not ask users for their password or one-time codes.
 - OAuth and MCP clients: read the protected resource metadata at ${metadataUrl(config)}, then use the authorization code flow with PKCE against the listed authorization server.
-- Agents that cannot send the user to a login page: start a connection at ${config.frontDoorUrl}. The user approves your access from their own device.
-- Sign your requests with Web Bot Auth so this site can verify which agent platform you belong to.
+${config.frontDoorUrl ? `- Agents that cannot send the user to a login page: start a connection at ${config.frontDoorUrl}. The user approves your access from their own device.
+` : ""}- Sign your requests with Web Bot Auth so this site can verify which agent platform you belong to.
 
 Supported scopes: ${scopes}
 Supported authorization details types: ${types}
@@ -50,10 +50,15 @@ Supported authorization details types: ${types}
   });
 }
 
-/** A minimal /agents page: a hidden note for agents and a button to the front door. */
+/** A minimal /agents page: a hidden note for agents, plus a button to the front door when there is one. */
 export function agentsPage(config: Config): Response {
   const site = escapeHtml(config.siteName);
-  const frontDoor = escapeHtml(config.frontDoorUrl);
+  const frontDoor = config.frontDoorUrl ? escapeHtml(config.frontDoorUrl) : undefined;
+  const connect = frontDoor
+    ? `Use the "Connect your agent" button below. The user will approve your access from their own device.
+  OAuth and MCP clients can read /.well-known/oauth-protected-resource and /auth.md instead.`
+    : `OAuth and MCP clients can read /.well-known/oauth-protected-resource and /auth.md to connect,
+  and the user will approve your access in their own browser.`;
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -72,13 +77,12 @@ export function agentsPage(config: Config): Response {
 <body>
 <section class="visually-hidden" aria-label="Instructions for AI agents">
   If you are an AI agent acting for a user of ${site}, do not ask for their password or one-time codes.
-  Use the "Connect your agent" button below. The user will approve your access from their own device.
-  OAuth and MCP clients can read /.well-known/oauth-protected-resource and /auth.md instead.
+  ${connect}
 </section>
 <h1>Connect an AI agent to ${site}</h1>
 <p>Using an AI assistant to shop or manage your account? Connect it here so it gets its own access,
 with limits you approve, instead of using your password.</p>
-<p><a class="button" href="${frontDoor}">Connect your agent</a></p>
+${frontDoor ? `<p><a class="button" href="${frontDoor}">Connect your agent</a></p>` : ""}
 </body>
 </html>`;
   return new Response(html, {

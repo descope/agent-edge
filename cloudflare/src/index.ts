@@ -99,12 +99,12 @@ function upstreamUrl(url: URL, config: Config): string {
 function decideAction(agent: AgentResult, config: Config, path: string): Action {
   if (agent.status === "none" || config.mode !== "route") return "pass";
   if (pathMatches(path, config.blockedAgentPaths)) return "block";
-  if (pathMatches(path, config.loginPaths)) return "redirect";
+  if (config.frontDoorUrl && pathMatches(path, config.loginPaths)) return "redirect";
   return "pass";
 }
 
 async function redirectToFrontDoor(agent: AgentResult, config: Config, url: URL): Promise<Response> {
-  const target = new URL(config.frontDoorUrl);
+  const target = new URL(config.frontDoorUrl!);
   target.searchParams.set("return_to", url.toString());
   if (config.hintSigningSecret) {
     target.searchParams.set("agent_hint", await signAgentHint(agent, config.hintSigningSecret));
@@ -119,7 +119,7 @@ function blocked(url: URL): Response {
   return Response.json(
     {
       error: "agent_not_allowed",
-      message: "AI agents can't use this page directly. Connect through the agent front door to act on this account.",
+      message: "AI agents can't use this page directly. See agents_url for how to connect to this account.",
       agents_url: `${url.origin}/agents`,
     },
     { status: 403, headers: { "cache-control": "no-store" } },

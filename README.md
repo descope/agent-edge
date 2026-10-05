@@ -7,7 +7,7 @@ Each integration runs in front of a site and does the same jobs:
 - Verifies AI agents with Web Bot Auth, falling back to platform bot signals and user-agent hints.
 - Serves discovery files (`/.well-known/oauth-protected-resource`, `/auth.md`, `/agents`) that point agents at a Descope authorization server.
 - Adds a `resource_metadata` `WWW-Authenticate` challenge to API 401s so MCP and OAuth clients find Descope on their own.
-- Adds an agent hint to login pages and routes agents to a Descope-hosted front door.
+- Adds an agent hint to login pages, and will route agents to a Descope-hosted front door once it's available.
 
 Integrations start in monitor mode and fail open, so they can be deployed safely before they change any traffic.
 
@@ -19,7 +19,7 @@ When an AI agent reaches a login page today, it asks the user for their password
 flowchart LR
   agent[AI agent] --> edge[Edge integration]
   edge -- "discovery files" --> agent
-  edge -- "login page: redirect" --> door[Descope front door]
+  edge -. "login page: redirect (coming soon)" .-> door[Descope front door]
   edge -- "everything else, with agent headers" --> site[Your site]
   site -- "401 from API" --> edge
   edge -- "401 + resource_metadata" --> agent
@@ -32,7 +32,7 @@ The integration runs at the edge, in front of your site. For each request it:
 
 1. **Answers discovery requests itself.** `/.well-known/oauth-protected-resource`, `/auth.md`, and `/agents` are served at the edge and point to your Descope project, so your origin never sees them.
 2. **Checks whether the caller is an agent.** A valid Web Bot Auth signature, checked against the agent platform's published keys, marks the request `verified`. Without one, the platform's own bot signals and user-agent hints can still flag it, usually as `unverified`.
-3. **Decides what to do.** In monitor mode it logs the agent and passes the request through. In route mode it also redirects agents on login pages to the Descope front door and returns a 403 on paths agents may never use, such as password and payment changes.
+3. **Decides what to do.** In monitor mode it logs the agent and passes the request through. In route mode it also returns a 403 on paths agents may never use, such as password and payment changes. Once the front door is available, route mode will also redirect agents on login pages there.
 4. **Forwards everything else** to your site, with `x-descope-agent` and `x-descope-agent-origin` headers so your app knows which requests came from agents.
 5. **Adjusts the response.** A 401 from an API path gains a `WWW-Authenticate: Bearer resource_metadata="..."` header, which is how MCP and OAuth clients find Descope on their own. Login pages gain a hidden note for agents and a small "Signing in with an AI assistant?" link to `/agents`.
 
@@ -71,7 +71,9 @@ sequenceDiagram
   S-->>A: 200
 ```
 
-### Agents that can't open a browser
+### Agents that can't open a browser (coming soon)
+
+> This path needs the Descope-hosted front door, which isn't available yet. The diagram shows how it will work.
 
 Computer use agents in a cloud VM and agents people reach over text message can't send the user to a sign-in page. They go through the front door, which asks the user for approval on their own device with CIBA.
 
