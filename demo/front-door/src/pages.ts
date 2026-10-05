@@ -77,7 +77,11 @@ function claims(token) {
 async function check() {
   const res = await fetch("/status?handle=" + encodeURIComponent(cfg.handle));
   const data = await res.json();
-  if (data.status === "pending") return setTimeout(check, cfg.interval * 1000);
+  if (data.status === "pending") {
+    if (data.handle) cfg.handle = data.handle;
+    if (data.interval) cfg.interval = data.interval;
+    return setTimeout(check, cfg.interval * 1000);
+  }
   if (data.status === "approved") {
     statusEl.textContent = "Approved. Your agent is connected.";
     const c = claims(data.access_token) || {};

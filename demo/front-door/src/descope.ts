@@ -98,7 +98,7 @@ export async function startCiba(
 }
 
 export type PollResult =
-  | { status: "pending" }
+  | { status: "pending"; slowDown?: boolean }
   | { status: "approved"; token: { access_token: string; token_type: string; expires_in?: number; scope?: string } }
   | { status: "denied" | "expired" }
   | { status: "error"; error: string };
@@ -125,8 +125,10 @@ export async function pollToken(config: Config, clientId: string, authReqId: str
   }
   switch (body.error) {
     case "authorization_pending":
-    case "slow_down":
       return { status: "pending" };
+    case "slow_down":
+      // CIBA: still pending, and the client must poll at least 5 seconds slower from now on.
+      return { status: "pending", slowDown: true };
     case "access_denied":
       return { status: "denied" };
     case "expired_token":

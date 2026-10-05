@@ -105,7 +105,12 @@ async function status(url: URL, config: Config): Promise<Response> {
   if (Date.now() > pending.expiresAt) return json({ status: "expired" });
 
   const result = await pollToken(config, pending.clientId, pending.authReqId);
-  if (result.status === "pending") return json({ status: "pending", interval: pending.interval });
+  if (result.status === "pending") {
+    if (!result.slowDown) return json({ status: "pending", interval: pending.interval });
+    // The interval lives in the handle, so hand back a new handle that carries the slower one.
+    const slower = { ...pending, interval: pending.interval + 5 };
+    return json({ status: "pending", interval: slower.interval, handle: await seal(slower, config.stateSecret) });
+  }
 
   console.log(JSON.stringify({ event: `connect_${result.status}`, agent_id: pending.agentId, tier: pending.tier }));
   if (result.status === "approved") return json({ status: "approved", agent_id: pending.agentId, ...result.token });

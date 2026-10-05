@@ -123,7 +123,7 @@ With the edge integration in place, agents have a standard way to sign in to you
 Descope issues standard OIDC tokens, so validate them whichever way fits your stack:
 
 - **With a Descope backend SDK.** Validate the token in your app, the same way you would a Descope session.
-- **At an API gateway.** Any gateway that validates JWTs against a JWKS, such as Kong, Envoy, or AWS API Gateway's JWT authorizer, can check the token using your Descope project's discovery document and pass the claims to your services. Your app doesn't change.
+- **At an API gateway.** Any gateway that validates JWTs against a JWKS, such as Kong, Envoy, or AWS API Gateway's JWT authorizer, can check the token using your Descope project's discovery document and pass the claims to your services. Your services still need to enforce the claims below, unless you configure the gateway to do it.
 
 Either way, check the signature, issuer, audience, and expiry, and accept Descope tokens alongside your existing sessions.
 

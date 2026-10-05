@@ -196,3 +196,20 @@ test("placeholder configuration returns a clear error", async () => {
   assert.equal(response.status, 500);
   assert.match(((await response.json()) as { message: string }).message, /UNVERIFIED_CLIENT_ID/);
 });
+
+test("slow_down adds 5 seconds to the interval, and the new handle keeps it", async () => {
+  const { handle } = (await (await connectJson({ email: "pat@example.com" })).json()) as Record<string, string>;
+  tokenAnswers.push({ status: 400, body: { error: "slow_down" } });
+  const first = (await (await call(new Request(`https://front-door.test/status?handle=${encodeURIComponent(handle)}`))).json()) as Record<string, unknown>;
+  assert.equal(first.status, "pending");
+  assert.equal(first.interval, 7);
+  assert.equal(typeof first.handle, "string");
+
+  // Later polls with the new handle keep the slower interval, and slow down again on another slow_down.
+  tokenAnswers.push({ status: 400, body: { error: "authorization_pending" } });
+  const second = (await (await call(new Request(`https://front-door.test/status?handle=${encodeURIComponent(String(first.handle))}`))).json()) as Record<string, unknown>;
+  assert.equal(second.interval, 7);
+  tokenAnswers.push({ status: 400, body: { error: "slow_down" } });
+  const third = (await (await call(new Request(`https://front-door.test/status?handle=${encodeURIComponent(String(first.handle))}`))).json()) as Record<string, unknown>;
+  assert.equal(third.interval, 12);
+});

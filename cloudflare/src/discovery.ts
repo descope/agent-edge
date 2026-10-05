@@ -80,9 +80,12 @@ export function agentsPage(config: Config): Response {
   ${connect}
 </section>
 <h1>Connect an AI agent to ${site}</h1>
-<p>Using an AI assistant to shop or manage your account? Connect it here so it gets its own access,
+${frontDoor
+  ? `<p>Using an AI assistant to shop or manage your account? Connect it here so it gets its own access,
 with limits you approve, instead of using your password.</p>
-${frontDoor ? `<p><a class="button" href="${frontDoor}">Connect your agent</a></p>` : ""}
+<p><a class="button" href="${frontDoor}">Connect your agent</a></p>`
+  : `<p>Using an AI assistant to shop or manage your account? If it can connect to apps, add ${site}
+from your assistant's settings. You'll sign in here and approve what it can do, so it never needs your password.</p>`}
 </body>
 </html>`;
   return new Response(html, {

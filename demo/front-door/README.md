@@ -78,7 +78,7 @@ curl "http://localhost:8788/status?handle=<handle from the response>"
 | --- | --- |
 | `GET /` | The email form. Keeps `return_to` and `agent_hint` from the edge integration's redirect. |
 | `POST /connect` | Starts a CIBA request. Takes a form post or JSON `{ "email": "...", "agent_hint": "..." }`. JSON callers get `{ handle, code, agent_id, tier, status_url, interval, expires_in }`. |
-| `GET /status?handle=...` | Polls Descope. Returns `pending`, `approved` with the access token, `denied`, `expired`, or `error`. |
+| `GET /status?handle=...` | Polls Descope. Returns `pending` with the `interval` to wait, `approved` with the access token, `denied`, `expired`, or `error`. If Descope asks it to slow down, `pending` also includes a new `handle` with a longer interval; use it for later polls. |
 | `GET /jwks.json` | The front door's public key, for registering `private_key_jwt` with your inbound apps. |
 
 ## What it leaves out

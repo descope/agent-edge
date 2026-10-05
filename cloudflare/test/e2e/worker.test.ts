@@ -95,11 +95,12 @@ test("401s outside the API paths are untouched", async () => {
   assert.equal(res.headers.get("www-authenticate"), null);
 });
 
-test("the login page gets the agent hint and link", async () => {
+test("the login page gets the agent hint, without the /agents link until a front door is set", async () => {
   const html = await (await fetch(`${BASE}/login`)).text();
   assert.match(html, /<form>Email<\/form>/);
   assert.match(html, /data-descope-agent-hint/);
-  assert.match(html, /href="\/agents"/);
+  assert.match(html, /\/auth\.md/);
+  assert.doesNotMatch(html, /href="\/agents"/);
   assert.ok(html.indexOf("data-descope-agent-hint") < html.indexOf("</body>"));
 });
 

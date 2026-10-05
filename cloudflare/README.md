@@ -99,7 +99,7 @@ To send a properly signed request, use Cloudflare's [web-bot-auth](https://githu
 | `HINT_SIGNING_SECRET` | Secret for signing the agent hint sent to the front door. |
 | `API_PATHS` | API paths whose 401s get the discovery challenge. Defaults to `/api/*`. |
 | `INJECT_LOGIN_HINT` | Adds the agent note and link to login pages. Defaults to `true`. |
-| `LOGIN_HINT_VISIBLE` | Shows the "Signing in with an AI assistant?" link. Set to `false` to keep only the hidden note. |
+| `LOGIN_HINT_VISIBLE` | Shows the "Signing in with an AI assistant?" link. Set to `false` to keep only the hidden note. Until `FRONT_DOOR_URL` is set, there's no link and the note only points OAuth and MCP clients to `/auth.md`. |
 | `UPSTREAM_ORIGIN` | Local testing only. Forwards to this origin instead of the request's host. |
 
 ## Headers sent to your origin

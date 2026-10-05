@@ -52,3 +52,25 @@ test("with a front door, agents on login pages are redirected in route mode", as
   assert.equal(response.status, 302);
   assert.match(response.headers.get("location") ?? "", /^https:\/\/agents\.example\.com\//);
 });
+
+test("without a front door, the login hint doesn't send agents away from the form", async () => {
+  const { loginHintMarkup } = await import("../src/loginHint");
+  const markup = loginHintMarkup(loadConfig(env));
+  assert.doesNotMatch(markup, /do not use this sign-in form/);
+  assert.doesNotMatch(markup, /data-descope-agent-link/);
+  assert.match(markup, /\/auth\.md/);
+});
+
+test("with a front door, the login hint points agents to /agents", async () => {
+  const { loginHintMarkup } = await import("../src/loginHint");
+  const markup = loginHintMarkup(loadConfig({ ...env, FRONT_DOOR_URL: "https://agents.example.com" }));
+  assert.match(markup, /do not use this sign-in form/);
+  assert.match(markup, /data-descope-agent-link/);
+});
+
+test("without a front door, /agents tells people what to do", async () => {
+  const html = await agentsPage(loadConfig(env)).text();
+  const visible = html.replace(/<section class="visually-hidden"[\s\S]*?<\/section>/, "");
+  assert.doesNotMatch(visible, /Connect it here/);
+  assert.match(visible, /assistant's settings/);
+});
