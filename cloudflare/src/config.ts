@@ -55,13 +55,27 @@ function required(name: keyof Env, value: string | undefined): string {
   return value.replace(/\/+$/, "");
 }
 
+function requiredUrl(name: keyof Env, value: string | undefined): string {
+  const url = required(name, value);
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid configuration: ${name} must be an absolute URL`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error(`Invalid configuration: ${name} must be an http(s) URL`);
+  }
+  return url;
+}
+
 export function loadConfig(env: Env): Config {
   return {
     mode: env.MODE === "route" ? "route" : "monitor",
     siteName: env.SITE_NAME ?? "This site",
-    issuer: required("DESCOPE_ISSUER", env.DESCOPE_ISSUER),
-    frontDoorUrl: required("FRONT_DOOR_URL", env.FRONT_DOOR_URL),
-    resourceUrl: required("RESOURCE_URL", env.RESOURCE_URL),
+    issuer: requiredUrl("DESCOPE_ISSUER", env.DESCOPE_ISSUER),
+    frontDoorUrl: requiredUrl("FRONT_DOOR_URL", env.FRONT_DOOR_URL),
+    resourceUrl: requiredUrl("RESOURCE_URL", env.RESOURCE_URL),
     scopes: list(env.SCOPES_SUPPORTED),
     authorizationDetailsTypes: list(env.AUTHORIZATION_DETAILS_TYPES),
     loginPaths: list(env.LOGIN_PATHS),
@@ -73,7 +87,7 @@ export function loadConfig(env: Env): Config {
     apiPaths: list(env.API_PATHS ?? "/api/*"),
     injectLoginHint: env.INJECT_LOGIN_HINT !== "false",
     loginHintVisible: env.LOGIN_HINT_VISIBLE !== "false",
-    upstreamOrigin: env.UPSTREAM_ORIGIN || undefined,
+    upstreamOrigin: env.UPSTREAM_ORIGIN ? requiredUrl("UPSTREAM_ORIGIN", env.UPSTREAM_ORIGIN) : undefined,
   };
 }
 

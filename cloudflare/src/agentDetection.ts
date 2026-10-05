@@ -12,8 +12,10 @@ export type AgentStatus = "verified" | "unverified" | "none";
 
 export interface AgentResult {
   status: AgentStatus;
-  /** The verified Signature-Agent origin, or the claimed one for unverified agents. */
+  /** The Signature-Agent origin. Only set when the signature verified. */
   signatureAgent?: string;
+  /** The Signature-Agent header a rejected request carried. Client-supplied, for logs only. */
+  claimedSignatureAgent?: string;
   keyid?: string;
   reason: string;
 }
@@ -45,7 +47,7 @@ export async function detectAgent(
     } catch (error) {
       return {
         status: "unverified",
-        signatureAgent: request.headers.get("signature-agent") ?? undefined,
+        claimedSignatureAgent: request.headers.get("signature-agent") ?? undefined,
         reason: `web bot auth signature rejected: ${message(error)}`,
       };
     }

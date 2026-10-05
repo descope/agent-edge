@@ -17,7 +17,7 @@ export default {
     } catch (error) {
       // Fail open: a configuration mistake should never take the site down.
       console.error(JSON.stringify({ event: "config_error", error: String(error) }));
-      return fetch(request);
+      return fetch(withoutAgentHeaders(request));
     }
 
     const url = new URL(request.url);
@@ -48,6 +48,7 @@ export default {
         action,
         status: agent.status,
         signature_agent: agent.signatureAgent ?? null,
+        claimed_signature_agent: agent.claimedSignatureAgent ?? null,
         reason: agent.reason,
         method: request.method,
         path: url.pathname,
@@ -58,13 +59,12 @@ export default {
     if (action === "block") return blocked(url);
 
     // Forward to the origin with trustworthy agent headers.
-    const headers = new Headers(request.headers);
-    for (const name of AGENT_HEADERS) headers.delete(name);
+    const forwarded = withoutAgentHeaders(request);
     if (agent.status !== "none") {
-      headers.set("x-descope-agent", agent.status);
-      if (agent.signatureAgent) headers.set("x-descope-agent-origin", agent.signatureAgent);
+      forwarded.headers.set("x-descope-agent", agent.status);
+      if (agent.signatureAgent) forwarded.headers.set("x-descope-agent-origin", agent.signatureAgent);
     }
-    let response = await fetch(new Request(upstreamUrl(url, config), new Request(request, { headers })));
+    let response = await fetch(new Request(upstreamUrl(url, config), forwarded));
 
     // Point MCP and OAuth clients at the metadata when the API turns them away.
     if (response.status === 401 && pathMatches(url.pathname, config.apiPaths)) {
@@ -82,6 +82,13 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 type Action = "pass" | "redirect" | "block";
+
+/** A copy of the request with any client-supplied agent headers removed. */
+function withoutAgentHeaders(request: Request): Request {
+  const headers = new Headers(request.headers);
+  for (const name of AGENT_HEADERS) headers.delete(name);
+  return new Request(request, { headers });
+}
 
 /** Normally the request's own URL. UPSTREAM_ORIGIN swaps the origin for local testing. */
 function upstreamUrl(url: URL, config: Config): string {
