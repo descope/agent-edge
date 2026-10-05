@@ -146,3 +146,7 @@ The `x-descope-agent` headers are useful for logging and for treating unauthenti
 | Amazon CloudFront | — | Planned |
 
 Each platform folder is a self-contained project with its own dependencies, tests, and README. Code is not shared between platforms yet; a common core may be extracted once a second platform exists.
+
+## Demo
+
+[`demo/front-door/`](demo/front-door/) is a stand-in for the Descope-hosted front door, so you can demo the full flow for agents that can't open a browser before the real one ships. It makes real Descope CIBA requests.

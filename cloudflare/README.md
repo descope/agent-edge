@@ -113,7 +113,7 @@ The worker strips any incoming copies of these headers, so only the worker can s
 
 ## The front door
 
-> **Coming soon.** Descope is building the front door, and it isn't available yet. Until it is, leave `FRONT_DOOR_URL` unset. Discovery, the API challenge, origin headers, the login hint, and blocked paths all work without it, so MCP and OAuth clients can already connect through the authorization code flow. This section describes how the worker will hand off to the front door once it ships.
+> **Coming soon.** Descope is building the front door, and it isn't available yet. For demos, [`demo/front-door/`](../demo/front-door/) stands in for it. Until it is, leave `FRONT_DOOR_URL` unset. Discovery, the API challenge, origin headers, the login hint, and blocked paths all work without it, so MCP and OAuth clients can already connect through the authorization code flow. This section describes how the worker will hand off to the front door once it ships.
 
 The front door is a separate Descope-hosted service, so this worker stays small. With `FRONT_DOOR_URL` set, in route mode, agents on a login page get a `302` to `FRONT_DOOR_URL`. The redirect always includes `return_to`, and includes `agent_hint` only when `HINT_SIGNING_SECRET` is set:
 
