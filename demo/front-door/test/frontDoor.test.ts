@@ -213,3 +213,121 @@ test("slow_down adds 5 seconds to the interval, and the new handle keeps it", as
   const third = (await (await call(new Request(`https://front-door.test/status?handle=${encodeURIComponent(String(first.handle))}`))).json()) as Record<string, unknown>;
   assert.equal(third.interval, 12);
 });
+
+/** Starts a request, approves it, and returns the /status response. */
+async function approve(overrides: Partial<Env> = {}, token: Record<string, unknown> = { access_token: "at", token_type: "Bearer", expires_in: 600, refresh_token: "rt" }) {
+  const started = await call(new Request("https://front-door.test/connect", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "pat@example.com" }),
+  }), overrides);
+  const { handle } = (await started.json()) as Record<string, string>;
+  tokenAnswers.push({ status: 200, body: token });
+  return call(new Request(`https://front-door.test/status?handle=${encodeURIComponent(handle)}`), overrides);
+}
+const cookie = (response: Response, name: string) => response.headers.getSetCookie().find((c) => c.startsWith(`${name}=`));
+
+test("approval sets the access token cookie for the site and a refresh cookie for the front door", async () => {
+  const response = await approve({ COOKIE_DOMAIN: "shop.test" });
+  const access = cookie(response, "DS")!;
+  assert.match(access, /^DS=at;/);
+  assert.match(access, /Domain=shop\.test/);
+  assert.match(access, /Path=\//);
+  assert.match(access, /Max-Age=600/);
+  assert.match(access, /HttpOnly/);
+  assert.match(access, /Secure/);
+  assert.match(access, /SameSite=Lax/);
+
+  const refresh = cookie(response, "DSR")!;
+  assert.match(refresh, /Path=\/refresh/);
+  assert.match(refresh, /HttpOnly/);
+  assert.doesNotMatch(refresh, /Domain=/);
+  assert.doesNotMatch(refresh, /DSR=rt;/, "the refresh token is sealed, not stored in the clear");
+
+  const body = (await response.json()) as Record<string, unknown>;
+  assert.equal(body.access_token, "at");
+  assert.equal(body.refresh_token, undefined);
+});
+
+test("cookie names are configurable and cookies can be turned off", async () => {
+  const renamed = await approve({ ACCESS_TOKEN_COOKIE: "agent_at", REFRESH_TOKEN_COOKIE: "agent_rt" });
+  assert.ok(cookie(renamed, "agent_at"));
+  assert.ok(cookie(renamed, "agent_rt"));
+  const off = await approve({ SESSION_COOKIES: "false" });
+  assert.deepEqual(off.headers.getSetCookie(), []);
+});
+
+test("/refresh exchanges the refresh cookie for new tokens", async () => {
+  const approved = await approve();
+  const refreshCookie = cookie(approved, "DSR")!.split(";")[0];
+  tokenAnswers.push({ status: 200, body: { access_token: "at2", token_type: "Bearer", expires_in: 600, refresh_token: "rt2" } });
+
+  const response = await call(new Request("https://front-door.test/refresh", { method: "POST", headers: { cookie: refreshCookie } }));
+  assert.equal(response.status, 200);
+  assert.match(cookie(response, "DS")!, /^DS=at2;/);
+  assert.ok(cookie(response, "DSR"), "a rotated refresh token gets a new cookie");
+
+  const exchange = calls.filter((c) => c.url === TOKEN).at(-1)!;
+  assert.equal(exchange.params.get("grant_type"), "refresh_token");
+  assert.equal(exchange.params.get("refresh_token"), "rt");
+  assert.equal(exchange.params.get("client_id"), "client-unverified");
+  assert.equal(exchange.params.get("client_secret"), "s1");
+});
+
+test("GET /refresh redirects back to return_to, and fails without a refresh cookie", async () => {
+  const approved = await approve();
+  const refreshCookie = cookie(approved, "DSR")!.split(";")[0];
+  tokenAnswers.push({ status: 200, body: { access_token: "at2", token_type: "Bearer", expires_in: 600 } });
+  const redirect = await call(new Request("https://front-door.test/refresh?return_to=https://shop.test/orders", { headers: { cookie: refreshCookie } }));
+  assert.equal(redirect.status, 302);
+  assert.equal(redirect.headers.get("location"), "https://shop.test/orders");
+  assert.match(cookie(redirect, "DS")!, /^DS=at2;/);
+
+  const missing = await call(new Request("https://front-door.test/refresh", { method: "POST" }));
+  assert.equal(missing.status, 401);
+});
+
+test("a rejected refresh clears the cookies", async () => {
+  const approved = await approve();
+  const refreshCookie = cookie(approved, "DSR")!.split(";")[0];
+  tokenAnswers.push({ status: 400, body: { error: "invalid_grant" } });
+  const response = await call(new Request("https://front-door.test/refresh", { method: "POST", headers: { cookie: refreshCookie } }));
+  assert.equal(response.status, 401);
+  assert.match(cookie(response, "DS")!, /Max-Age=0/);
+  assert.match(cookie(response, "DSR")!, /Max-Age=0/);
+});
+
+test("Descope's own error format is reported, not just the status code", async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === BC) {
+      return Response.json({ errorCode: "E074130", errorDescription: "Request is invalid", errorMessage: "Invalid client id" }, { status: 400 });
+    }
+    return real(input, init);
+  }) as typeof fetch;
+  const response = await connectJson({ email: "pat@example.com" });
+  const body = (await response.json()) as { message: string };
+  assert.match(body.message, /E074130/);
+  assert.match(body.message, /Invalid client id/);
+});
+
+test("each tier's access description goes in the approval message, with {site} filled in", async () => {
+  const overrides = {
+    TRUSTED_ACCESS: "place orders up to $200 at {site} over the next 7 days",
+    UNVERIFIED_ACCESS: "view your orders at {site}",
+  };
+  const hint = await edgeHint({ status: "verified", signature_agent: "https://agent.example", iat: now(), exp: now() + 300 });
+  const trusted = await call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "pat@example.com", agent_hint: hint }),
+  }), overrides);
+  const { code } = (await trusted.json()) as { code: string };
+  assert.equal(calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message"),
+    `An agent from agent.example wants to place orders up to $200 at Northbound over the next 7 days. Code ${code}`);
+
+  await call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "pat@example.com" }),
+  }), overrides);
+  assert.match(calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message")!,
+    /^An unverified agent wants to view your orders at Northbound\. Code [A-Z2-9]{6}$/);
+});

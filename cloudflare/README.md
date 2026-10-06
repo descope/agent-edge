@@ -7,7 +7,7 @@ A Cloudflare Worker you deploy in front of your site to get it ready for AI agen
 It does six things:
 
 - **Verifies agents.** Checks Web Bot Auth signatures (RFC 9421) against each agent platform's published keys, and falls back to Cloudflare's verified bot signal and user-agent hints.
-- **Publishes discovery files.** Serves `/.well-known/oauth-protected-resource`, `/auth.md`, and an `/agents` page that point agents at your Descope authorization server.
+- **Publishes discovery files.** Serves `/.well-known/oauth-protected-resource`, `/auth.md` (also at `/.well-known/auth.md`), and an `/agents` page that point agents at your Descope authorization server.
 - **Routes agents.** Blocks agents from sensitive pages such as password and payment changes. Once the Descope-hosted front door is available, it also sends agents that land on your human login page there.
 - **Tells your origin.** Adds `x-descope-agent` and `x-descope-agent-origin` headers so your app can see which requests came from agents.
 - **Points MCP and OAuth clients at Descope.** Adds `WWW-Authenticate: Bearer resource_metadata="..."` to 401s from your API paths. MCP clients discover the authorization server from that header, so they find Descope on their own even though your API has never heard of it.
@@ -35,7 +35,7 @@ The Deploy to Cloudflare button above copies this folder into a new repo in your
    npm install
    ```
 
-2. **Fill in `wrangler.toml`.** At minimum, set `DESCOPE_ISSUER`, `RESOURCE_URL`, and `SITE_NAME`. Leave `FRONT_DOOR_URL` unset until the front door is available. Adjust `LOGIN_PATHS` and `BLOCKED_AGENT_PATHS` to match your site.
+2. **Fill in `wrangler.toml`.** At minimum, set `SITE_NAME` to your site's name (for example `"Northbound"`), `DESCOPE_ISSUER`, and `RESOURCE_URL`. Leave `FRONT_DOOR_URL` unset until the front door is available. Adjust `LOGIN_PATHS` and `BLOCKED_AGENT_PATHS` to match your site.
 
 3. **Add your route.** Uncomment the `routes` block and replace `example.com` with your zone.
 
@@ -63,7 +63,7 @@ npm run test:e2e   # runs the worker in workerd in front of a fake origin
 npm run dev        # runs the worker locally
 ```
 
-To try the worker locally against your own site or a staging server, point it at that origin:
+Locally there's no site behind the worker, so `npm run dev` needs `UPSTREAM_ORIGIN`. Without it, the worker would forward requests to itself, so it stops them with a `508` that says to set it. Point it at your own site or a staging server:
 
 ```sh
 npx wrangler dev --var UPSTREAM_ORIGIN:https://staging.example.com
@@ -85,7 +85,7 @@ To send a properly signed request, use Cloudflare's [web-bot-auth](https://githu
 | Variable | What it does |
 | --- | --- |
 | `MODE` | `monitor` logs only. `route` also redirects and blocks. |
-| `SITE_NAME` | Display name on the `/agents` page and in `auth.md`. |
+| `SITE_NAME` | Your site's name, such as `Northbound`. Shown on the `/agents` page, in `auth.md`, and in the note added to login pages. Set the same name on the front door. |
 | `DESCOPE_ISSUER` | Your Descope authorization server URL. |
 | `FRONT_DOOR_URL` | The Descope-hosted agent front door. Optional, and not available yet. Without it, agents on login pages aren't redirected. |
 | `RESOURCE_URL` | The resource identifier agents request tokens for. |
@@ -100,6 +100,7 @@ To send a properly signed request, use Cloudflare's [web-bot-auth](https://githu
 | `API_PATHS` | API paths whose 401s get the discovery challenge. Defaults to `/api/*`. |
 | `INJECT_LOGIN_HINT` | Adds the agent note and link to login pages. Defaults to `true`. |
 | `LOGIN_HINT_VISIBLE` | Shows the "Signing in with an AI assistant?" link. Set to `false` to keep only the hidden note. Until `FRONT_DOOR_URL` is set, there's no link and the note only points OAuth and MCP clients to `/auth.md`. |
+| `AGENT_SESSION_COOKIE` | The cookie the front door sets once an agent is signed in. Defaults to `DS`. A request that carries it is treated as an agent even with an ordinary browser user agent, so `BLOCKED_AGENT_PATHS` still applies, and it isn't redirected from login pages again. |
 | `UPSTREAM_ORIGIN` | Local testing only. Forwards to this origin instead of the request's host. |
 
 ## Headers sent to your origin
@@ -120,7 +121,7 @@ The front door is a separate Descope-hosted service, so this worker stays small.
 | Parameter | Value |
 | --- | --- |
 | `return_to` | Always sent. The page the agent was trying to reach. |
-| `agent_hint` | Optional. `base64url(JSON) + "." + base64url(HMAC-SHA256)`, where the JSON is `{ status, signature_agent, iat, exp }` and expires after 5 minutes. `signature_agent` is only set for agents whose Web Bot Auth signature verified. |
+| `agent_hint` | Optional. Also added to the "Connect your agent" button on `/agents` when the worker recognizes the agent, so agents that go through that page carry it too. `base64url(JSON) + "." + base64url(HMAC-SHA256)`, where the JSON is `{ status, signature_agent, iat, exp }` and expires after 5 minutes. `signature_agent` is only set for agents whose Web Bot Auth signature verified. |
 
 The front door then gets the agent a token in one of four ways:
 
@@ -143,7 +144,7 @@ The user approves the request from their own device through CIBA, and the token 
 - **It doesn't keep a nonce replay cache or verify key directory signatures.** That's fine for identification and routing, but add both before using verification results for anything more sensitive.
 - **The login hint uses inline styles.** If your login page sets a strict Content Security Policy that blocks inline styles, the hidden note becomes visible. Allow it in your policy, or set `INJECT_LOGIN_HINT = "false"`.
 - **The discovery challenge is a pointer, not protection.** It tells clients where to get a token. Your API or a gateway still has to check the token.
-- **Check for path conflicts.** If your site already serves `/agents` or `/auth.md`, rename them or remove those routes from `src/index.ts`.
+- **Check for path conflicts.** If your site already serves `/agents`, `/auth.md`, or `/.well-known/auth.md`, rename them or remove those routes from `src/index.ts`.
 - **Cloudflare also verifies Web Bot Auth.** If your zone uses Cloudflare's own verification, review Cloudflare's guidance on running your own verification alongside it.
 - **The agent hint needs the front door.** It's optional, only sent once `FRONT_DOOR_URL` is set, and ignored unless the front door is configured with the same secret.
 

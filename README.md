@@ -30,7 +30,7 @@ flowchart LR
 
 The integration runs at the edge, in front of your site. For each request it:
 
-1. **Answers discovery requests itself.** `/.well-known/oauth-protected-resource`, `/auth.md`, and `/agents` are served at the edge and point to your Descope project, so your origin never sees them.
+1. **Answers discovery requests itself.** `/.well-known/oauth-protected-resource`, `/auth.md` (also at `/.well-known/auth.md`), and `/agents` are served at the edge and point to your Descope project, so your origin never sees them.
 2. **Checks whether the caller is an agent.** A valid Web Bot Auth signature, checked against the agent platform's published keys, marks the request `verified`. Without one, the platform's own bot signals and user-agent hints can still flag it, usually as `unverified`.
 3. **Decides what to do.** In monitor mode it logs the agent and passes the request through. In route mode it also returns a 403 on paths agents may never use, such as password and payment changes. Once the front door is available, route mode will also redirect agents on login pages there.
 4. **Forwards everything else** to your site, with `x-descope-agent` and `x-descope-agent-origin` headers so your app knows which requests came from agents.
@@ -112,7 +112,21 @@ sequenceDiagram
 
 The front door serves the page with the email field, so the edge integration never handles the user's email. Browser agents fill it in like any form. Agents that read `/auth.md` or `/agents` instead of the login page get pointed to the same page, starting at step 4.
 
-What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead, which means your site has to accept the Descope token and start an agent session from it. The edge integration doesn't do that part.
+What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead. The front door sets the access token as a cookie on your domain, so the agent's browser sends it on every request without adding a header. Your site has to accept the token from that cookie. See [Browser agents get a session cookie](demo/front-door/README.md#browser-agents-get-a-session-cookie).
+
+### What the user sees when approving
+
+CIBA doesn't skip signing in. The approval link opens a Descope flow, the CIBA approval flow you choose on the inbound app, and that flow does three things:
+
+1. **Signs the user in.** Use any method Descope supports: social or OAuth sign-in (Google, Apple), a magic link, a one-time code by email or text, or a passkey. To keep users on the login they already have, replace Descope's sign-in step with your own using the **External Authentication** action in the flow. Users then approve with the same account and credentials they use on your site today.
+2. **Shows the consent screen.** This is the step that makes delegation meaningful. It tells the user, in plain language:
+   - **which agent is asking**, and whether its platform was verified
+   - **what it will be able to do**: the scopes requested
+   - **the binding message**, including the short code the agent also shows the user, so they can check the request is theirs
+   - **any limits in `authorization_details` (RAR)**, such as "up to $200 at Northbound over the next 7 days"
+
+   Consent only carries weight when the user can tell what they agreed to, so design this screen to be read, not clicked through.
+3. **Records the decision.** The flow's CIBA Approval step marks the request approved or denied. The agent, which has been polling, gets its token or a refusal.
 
 ## Next steps: accept the tokens in your backend
 

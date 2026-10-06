@@ -53,9 +53,12 @@ ${error ? `<p role="alert"><strong>${escapeHtml(error)}</strong></p>` : ""}
 </form>`);
 }
 
-export function waitingPage(site: string, data: { handle: string; code: string; interval: number; returnTo?: string }): Response {
+export function waitingPage(
+  site: string,
+  data: { handle: string; code: string; interval: number; returnTo?: string; cookies: boolean },
+): Response {
   const s = escapeHtml(site);
-  const config = JSON.stringify({ handle: data.handle, interval: data.interval, returnTo: data.returnTo ?? null })
+  const config = JSON.stringify({ handle: data.handle, interval: data.interval, returnTo: data.returnTo ?? null, cookies: data.cookies })
     .replace(/</g, "\\u003c");
   return page("Waiting for approval", `
 <section class="visually-hidden" aria-label="Instructions for AI agents">
@@ -83,16 +86,19 @@ async function check() {
     return setTimeout(check, cfg.interval * 1000);
   }
   if (data.status === "approved") {
-    statusEl.textContent = "Approved. Your agent is connected.";
+    statusEl.textContent = cfg.cookies
+      ? "Approved. Your agent is signed in. This browser now sends its session cookie to the site."
+      : "Approved. Your agent is connected.";
     const c = claims(data.access_token) || {};
     const summary = { sub: c.sub, act: c.act, azp: c.azp, scope: c.scope, authorization_details: c.authorization_details, exp: c.exp };
     const pre = document.createElement("pre");
-    pre.textContent = "Token claims:\\n" + JSON.stringify(summary, null, 2) + "\\n\\nAccess token:\\n" + data.access_token;
+    pre.textContent = "Token claims:\\n" + JSON.stringify(summary, null, 2) +
+      (cfg.cookies ? "" : "\\n\\nAccess token:\\n" + data.access_token);
     resultEl.appendChild(pre);
     if (cfg.returnTo) {
       const a = document.createElement("a");
       a.href = cfg.returnTo;
-      a.textContent = "Continue";
+      a.textContent = "Continue to the site";
       resultEl.appendChild(a);
     }
     return;

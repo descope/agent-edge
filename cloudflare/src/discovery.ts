@@ -39,7 +39,9 @@ ${config.siteName} supports delegated access for AI agents acting on behalf of i
 
 - Do not ask users for their password or one-time codes.
 - OAuth and MCP clients: read the protected resource metadata at ${metadataUrl(config)}, then use the authorization code flow with PKCE against the listed authorization server.
-${config.frontDoorUrl ? `- Agents that cannot send the user to a login page: start a connection at ${config.frontDoorUrl}. The user approves your access from their own device.
+${config.frontDoorUrl ? `- Agents that cannot send the user to a login page: connect through ${config.frontDoorUrl}. The user approves your access from their own device.
+  - In a browser, open that page and enter the user's email address.
+  - Without a browser, POST ${config.frontDoorUrl}/connect with JSON {"email": "<the user's email>"}. Show the user the code in the response, then poll its status_url until the user approves.
 ` : ""}- Sign your requests with Web Bot Auth so this site can verify which agent platform you belong to.
 
 Supported scopes: ${scopes}
@@ -50,10 +52,14 @@ Supported authorization details types: ${types}
   });
 }
 
-/** A minimal /agents page: a hidden note for agents, plus a button to the front door when there is one. */
-export function agentsPage(config: Config): Response {
+/**
+ * A minimal /agents page: a hidden note for agents, plus a button to the front door when
+ * there is one. connectUrl overrides the button's link, so it can carry a signed agent hint.
+ */
+export function agentsPage(config: Config, connectUrl?: string): Response {
   const site = escapeHtml(config.siteName);
-  const frontDoor = config.frontDoorUrl ? escapeHtml(config.frontDoorUrl) : undefined;
+  const target = connectUrl ?? config.frontDoorUrl;
+  const frontDoor = target ? escapeHtml(target) : undefined;
   const connect = frontDoor
     ? `Use the "Connect your agent" button below. The user will approve your access from their own device.
   OAuth and MCP clients can read /.well-known/oauth-protected-resource and /auth.md instead.`

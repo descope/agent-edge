@@ -9,8 +9,22 @@ import { injectLoginHint } from "./loginHint";
 /** Headers this worker sets for the origin. Incoming copies are always stripped. */
 const AGENT_HEADERS = ["x-descope-agent", "x-descope-agent-origin"];
 
+/**
+ * Set on every request the worker forwards. If one comes back, the worker is forwarding
+ * to itself, which is what happens under `wrangler dev` without UPSTREAM_ORIGIN.
+ */
+const HOP_HEADER = "x-agent-ready-forwarded";
+
 export default {
   async fetch(request, env, ctx): Promise<Response> {
+    if (request.headers.has(HOP_HEADER)) {
+      return new Response(
+        "agent-ready: this request looped back to the worker. Under `wrangler dev` there is no site behind it, " +
+        "so set UPSTREAM_ORIGIN to the site to forward to, for example --var UPSTREAM_ORIGIN:http://localhost:3000\n",
+        { status: 508, headers: { "content-type": "text/plain; charset=utf-8" } },
+      );
+    }
+
     let config: Config;
     try {
       config = loadConfig(env);
@@ -28,8 +42,7 @@ export default {
           url.pathname.startsWith("/.well-known/oauth-protected-resource/")) {
         return protectedResourceMetadata(config);
       }
-      if (url.pathname === "/auth.md") return authMd(config);
-      if (url.pathname === "/agents") return agentsPage(config);
+      if (url.pathname === "/auth.md" || url.pathname === "/.well-known/auth.md") return authMd(config);
     }
 
     let agent: AgentResult;
@@ -39,7 +52,21 @@ export default {
       agent = { status: "none", reason: `detection error: ${String(error)}` };
     }
 
-    const action = decideAction(agent, config, url.pathname);
+    // A browser carrying the front door's session cookie is an agent acting for a user,
+    // even when its user agent looks like an ordinary browser. Treating it as one keeps
+    // blocked paths blocked and puts its requests in the agent logs.
+    const signedIn = hasCookie(request, config.agentSessionCookie);
+    if (agent.status === "none" && signedIn) {
+      agent = { status: "unverified", reason: "agent session cookie" };
+    }
+
+    // The agent page, served at the edge. A recognized agent's Connect button carries the
+    // same signed hint as the login redirect, so the front door knows what was verified here.
+    if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/agents") {
+      return agentsPage(config, await connectUrl(agent, config, url));
+    }
+
+    const action = decideAction(agent, config, url.pathname, signedIn);
 
     if (agent.status !== "none") {
       console.log(JSON.stringify({
@@ -87,6 +114,7 @@ type Action = "pass" | "redirect" | "block";
 function withoutAgentHeaders(request: Request): Request {
   const headers = new Headers(request.headers);
   for (const name of AGENT_HEADERS) headers.delete(name);
+  headers.set(HOP_HEADER, "1");
   return new Request(request, { headers });
 }
 
@@ -96,11 +124,19 @@ function upstreamUrl(url: URL, config: Config): string {
   return new URL(url.pathname + url.search, config.upstreamOrigin).toString();
 }
 
-function decideAction(agent: AgentResult, config: Config, path: string): Action {
+function decideAction(agent: AgentResult, config: Config, path: string, signedIn: boolean): Action {
   if (agent.status === "none" || config.mode !== "route") return "pass";
   if (pathMatches(path, config.blockedAgentPaths)) return "block";
-  if (config.frontDoorUrl && pathMatches(path, config.loginPaths)) return "redirect";
+  // An agent the front door already signed in goes back to the login page as the user,
+  // so sending it to the front door again would loop. This only skips a convenience
+  // redirect; the site still checks the cookie's token itself.
+  if (config.frontDoorUrl && !signedIn && pathMatches(path, config.loginPaths)) return "redirect";
   return "pass";
+}
+
+function hasCookie(request: Request, name: string): boolean {
+  const header = request.headers.get("cookie") ?? "";
+  return header.split(/;\s*/).some((part) => part.startsWith(`${name}=`) && part.length > name.length + 1);
 }
 
 async function redirectToFrontDoor(agent: AgentResult, config: Config, url: URL): Promise<Response> {
@@ -113,6 +149,14 @@ async function redirectToFrontDoor(agent: AgentResult, config: Config, url: URL)
     status: 302,
     headers: { location: target.toString(), "cache-control": "no-store" },
   });
+}
+
+async function connectUrl(agent: AgentResult, config: Config, url: URL): Promise<string | undefined> {
+  if (!config.frontDoorUrl || !config.hintSigningSecret || agent.status === "none") return undefined;
+  const target = new URL(config.frontDoorUrl);
+  target.searchParams.set("return_to", `${url.origin}/`);
+  target.searchParams.set("agent_hint", await signAgentHint(agent, config.hintSigningSecret));
+  return target.toString();
 }
 
 function blocked(url: URL): Response {

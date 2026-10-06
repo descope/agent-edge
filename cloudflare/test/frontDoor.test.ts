@@ -74,3 +74,93 @@ test("without a front door, /agents tells people what to do", async () => {
   assert.doesNotMatch(visible, /Connect it here/);
   assert.match(visible, /assistant's settings/);
 });
+
+test("an agent that already has a session cookie isn't sent back to the front door", async () => {
+  const forwarded: Request[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    forwarded.push(new Request(input as RequestInfo, init));
+    return new Response("ok");
+  }) as typeof fetch;
+  const signedIn = new Request("https://example.com/login", {
+    headers: { "user-agent": "HeadlessChrome/126.0", cookie: "theme=dark; DS=eyJhbGciOi.payload.sig" },
+  });
+  const response = await worker.fetch(signedIn as never, { ...env, FRONT_DOOR_URL: "https://agents.example.com" }, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(forwarded.length, 1);
+
+  // A custom cookie name works too, and a cookie that merely ends in "DS" doesn't count.
+  const renamed = new Request("https://example.com/login", {
+    headers: { "user-agent": "HeadlessChrome/126.0", cookie: "agent_at=x" },
+  });
+  const custom = await worker.fetch(renamed as never, { ...env, FRONT_DOOR_URL: "https://agents.example.com", AGENT_SESSION_COOKIE: "agent_at" }, ctx);
+  assert.equal(custom.status, 200);
+  const lookalike = new Request("https://example.com/login", {
+    headers: { "user-agent": "HeadlessChrome/126.0", cookie: "XDS=x" },
+  });
+  const notSignedIn = await worker.fetch(lookalike as never, { ...env, FRONT_DOOR_URL: "https://agents.example.com" }, ctx);
+  assert.equal(notSignedIn.status, 302);
+});
+
+test("a request with the agent session cookie is blocked from agent-blocked paths, even with a browser user agent", async () => {
+  let forwarded = 0;
+  globalThis.fetch = (async () => { forwarded++; return new Response("ok"); }) as typeof fetch;
+  const request = new Request("https://example.com/account/payment-methods", {
+    method: "POST",
+    headers: { "user-agent": "Mozilla/5.0 (Macintosh) Chrome/154.0", cookie: "DS=eyJhbGciOi.payload.sig" },
+  });
+  const response = await worker.fetch(request as never, { ...env, BLOCKED_AGENT_PATHS: "/account/payment-methods*" }, ctx);
+  assert.equal(response.status, 403);
+  assert.equal(forwarded, 0);
+
+  // The same request from a person (no agent cookie) goes through.
+  const person = new Request("https://example.com/account/payment-methods", {
+    method: "POST",
+    headers: { "user-agent": "Mozilla/5.0 (Macintosh) Chrome/154.0" },
+  });
+  assert.equal((await worker.fetch(person as never, { ...env, BLOCKED_AGENT_PATHS: "/account/payment-methods*" }, ctx)).status, 200);
+});
+
+test("/agents passes a recognized agent's signed hint through the Connect button", async () => {
+  const withDoor = { ...env, FRONT_DOOR_URL: "https://agents.example.com", HINT_SIGNING_SECRET: "hint-secret" };
+  const agentReq = new Request("https://example.com/agents", { headers: { "user-agent": "HeadlessChrome/126.0" } });
+  const html = await (await worker.fetch(agentReq as never, withDoor, ctx)).text();
+  const href = html.match(/<a class="button" href="([^"]+)"/)?.[1].replace(/&#38;/g, "&");
+  assert.ok(href, "button present");
+  const link = new URL(href!);
+  assert.equal(link.origin, "https://agents.example.com");
+  assert.ok(link.searchParams.get("agent_hint"), "hint attached");
+  assert.equal(link.searchParams.get("return_to"), "https://example.com/");
+
+  // People get the plain link.
+  const personReq = new Request("https://example.com/agents", { headers: { "user-agent": "Mozilla/5.0 Safari/605.1.15" } });
+  const personHtml = await (await worker.fetch(personReq as never, withDoor, ctx)).text();
+  assert.doesNotMatch(personHtml, /agent_hint/);
+});
+
+test("auth.md tells agents without a browser how to use the front door", async () => {
+  const md = await authMd(loadConfig({ ...env, FRONT_DOOR_URL: "https://agents.example.com" })).text();
+  assert.match(md, /POST https:\/\/agents\.example\.com\/connect/);
+  assert.match(md, /status_url/);
+});
+
+test("auth.md is also served at /.well-known/auth.md", async () => {
+  globalThis.fetch = (async () => { throw new Error("should not reach the origin"); }) as typeof fetch;
+  const response = await worker.fetch(new Request("https://example.com/.well-known/auth.md") as never, env, ctx);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /text\/markdown/);
+  assert.match(await response.text(), /# Authentication for AI agents/);
+});
+
+test("a request that loops back to the worker fails fast with a hint about UPSTREAM_ORIGIN", async () => {
+  let calls = 0;
+  // Simulate wrangler dev with no origin: forwarding sends the request straight back to the worker.
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls++;
+    if (calls > 5) throw new Error("looped");
+    return worker.fetch(new Request(input as RequestInfo, init) as never, env, ctx);
+  }) as typeof fetch;
+  const response = await worker.fetch(new Request("https://example.com/") as never, env, ctx);
+  assert.equal(response.status, 508);
+  assert.match(await response.text(), /UPSTREAM_ORIGIN/);
+  assert.ok(calls <= 2, `forwarded ${calls} times`);
+});

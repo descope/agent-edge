@@ -31,6 +31,23 @@ TRUSTED_SCOPES = "openid"
 VERIFIED_SCOPES = "openid"
 UNVERIFIED_SCOPES = "openid"
 
+# What each tier is asking to do, shown to the user in the approval message ({site} is SITE_NAME).
+# Keep these in step with the limits your inbound apps put in their tokens, so the user approves
+# exactly what the store will enforce.
+TRUSTED_ACCESS = "place orders up to $200 at {site} over the next 7 days"
+VERIFIED_ACCESS = "place orders up to $50 at {site} over the next 7 days"
+UNVERIFIED_ACCESS = "view your orders at {site}"
+
+# Session cookies for browser agents. On approval, the front door sets the access token as a
+# cookie the site can read (and a sealed refresh cookie only it can read), so a computer use
+# agent's browser is signed in without adding an Authorization header.
+# Set COOKIE_DOMAIN to your site's domain, with the front door on a subdomain of it.
+# Leave it unset for local runs: browsers reject Domain=localhost, and cookies ignore ports.
+SESSION_COOKIES = "true"
+# COOKIE_DOMAIN = "example.com"
+ACCESS_TOKEN_COOKIE = "DS"
+REFRESH_TOKEN_COOKIE = "DSR"
+
 # Set these as secrets (wrangler secret put NAME), or in .dev.vars for local runs:
 #   STATE_SECRET         random string that seals request handles
 #   HINT_SIGNING_SECRET  same value as the edge worker's, to trust its agent_hint
