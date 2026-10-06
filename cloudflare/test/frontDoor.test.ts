@@ -150,3 +150,17 @@ test("auth.md is also served at /.well-known/auth.md", async () => {
   assert.match(response.headers.get("content-type") ?? "", /text\/markdown/);
   assert.match(await response.text(), /# Authentication for AI agents/);
 });
+
+test("a request that loops back to the worker fails fast with a hint about UPSTREAM_ORIGIN", async () => {
+  let calls = 0;
+  // Simulate wrangler dev with no origin: forwarding sends the request straight back to the worker.
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls++;
+    if (calls > 5) throw new Error("looped");
+    return worker.fetch(new Request(input as RequestInfo, init) as never, env, ctx);
+  }) as typeof fetch;
+  const response = await worker.fetch(new Request("https://example.com/") as never, env, ctx);
+  assert.equal(response.status, 508);
+  assert.match(await response.text(), /UPSTREAM_ORIGIN/);
+  assert.ok(calls <= 2, `forwarded ${calls} times`);
+});

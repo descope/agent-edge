@@ -63,7 +63,7 @@ npm run test:e2e   # runs the worker in workerd in front of a fake origin
 npm run dev        # runs the worker locally
 ```
 
-To try the worker locally against your own site or a staging server, point it at that origin:
+Locally there's no site behind the worker, so `npm run dev` needs `UPSTREAM_ORIGIN`. Without it, the worker would forward requests to itself, so it stops them with a `508` that says to set it. Point it at your own site or a staging server:
 
 ```sh
 npx wrangler dev --var UPSTREAM_ORIGIN:https://staging.example.com

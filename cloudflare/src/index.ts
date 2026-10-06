@@ -9,8 +9,22 @@ import { injectLoginHint } from "./loginHint";
 /** Headers this worker sets for the origin. Incoming copies are always stripped. */
 const AGENT_HEADERS = ["x-descope-agent", "x-descope-agent-origin"];
 
+/**
+ * Set on every request the worker forwards. If one comes back, the worker is forwarding
+ * to itself, which is what happens under `wrangler dev` without UPSTREAM_ORIGIN.
+ */
+const HOP_HEADER = "x-agent-ready-forwarded";
+
 export default {
   async fetch(request, env, ctx): Promise<Response> {
+    if (request.headers.has(HOP_HEADER)) {
+      return new Response(
+        "agent-ready: this request looped back to the worker. Under `wrangler dev` there is no site behind it, " +
+        "so set UPSTREAM_ORIGIN to the site to forward to, for example --var UPSTREAM_ORIGIN:http://localhost:3000\n",
+        { status: 508, headers: { "content-type": "text/plain; charset=utf-8" } },
+      );
+    }
+
     let config: Config;
     try {
       config = loadConfig(env);
@@ -100,6 +114,7 @@ type Action = "pass" | "redirect" | "block";
 function withoutAgentHeaders(request: Request): Request {
   const headers = new Headers(request.headers);
   for (const name of AGENT_HEADERS) headers.delete(name);
+  headers.set(HOP_HEADER, "1");
   return new Request(request, { headers });
 }
 
