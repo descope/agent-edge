@@ -300,7 +300,9 @@ test("a rejected refresh clears the cookies", async () => {
 test("Descope's own error format is reported, not just the status code", async () => {
   const real = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input) === BC) return Response.json({ errorCode: "E074130", errorDescription: "Invalid client id" }, { status: 400 });
+    if (String(input) === BC) {
+      return Response.json({ errorCode: "E074130", errorDescription: "Request is invalid", errorMessage: "Invalid client id" }, { status: 400 });
+    }
     return real(input, init);
   }) as typeof fetch;
   const response = await connectJson({ email: "pat@example.com" });

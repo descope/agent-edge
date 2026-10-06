@@ -67,6 +67,8 @@ sequenceDiagram
    - **`private_key_jwt` (preferred).** It's available on request, so ask Descope to turn it on for your project. Run `npm run generate-key` and save the output as `PRIVATE_KEY_JWK`. Then register the front door's public key with each inbound app, either by pointing the app at `https://<front door>/jwks.json` or by pasting the key.
    - **Client secrets.** Set `CLIENT_SECRETS` to a JSON map from each client ID to its secret.
 
+   If `PRIVATE_KEY_JWK` is set, the front door always uses `private_key_jwt`, even when `CLIENT_SECRETS` is also set. Until Descope turns on `private_key_jwt` for your project, leave `PRIVATE_KEY_JWK` unset, or Descope rejects every request with `E011002 ... missing secret`.
+
 ## Run it
 
 ```sh
