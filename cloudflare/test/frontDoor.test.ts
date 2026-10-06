@@ -119,3 +119,26 @@ test("a request with the agent session cookie is blocked from agent-blocked path
   });
   assert.equal((await worker.fetch(person as never, { ...env, BLOCKED_AGENT_PATHS: "/account/payment-methods*" }, ctx)).status, 200);
 });
+
+test("/agents passes a recognized agent's signed hint through the Connect button", async () => {
+  const withDoor = { ...env, FRONT_DOOR_URL: "https://agents.example.com", HINT_SIGNING_SECRET: "hint-secret" };
+  const agentReq = new Request("https://example.com/agents", { headers: { "user-agent": "HeadlessChrome/126.0" } });
+  const html = await (await worker.fetch(agentReq as never, withDoor, ctx)).text();
+  const href = html.match(/<a class="button" href="([^"]+)"/)?.[1].replace(/&#38;/g, "&");
+  assert.ok(href, "button present");
+  const link = new URL(href!);
+  assert.equal(link.origin, "https://agents.example.com");
+  assert.ok(link.searchParams.get("agent_hint"), "hint attached");
+  assert.equal(link.searchParams.get("return_to"), "https://example.com/");
+
+  // People get the plain link.
+  const personReq = new Request("https://example.com/agents", { headers: { "user-agent": "Mozilla/5.0 Safari/605.1.15" } });
+  const personHtml = await (await worker.fetch(personReq as never, withDoor, ctx)).text();
+  assert.doesNotMatch(personHtml, /agent_hint/);
+});
+
+test("auth.md tells agents without a browser how to use the front door", async () => {
+  const md = await authMd(loadConfig({ ...env, FRONT_DOOR_URL: "https://agents.example.com" })).text();
+  assert.match(md, /POST https:\/\/agents\.example\.com\/connect/);
+  assert.match(md, /status_url/);
+});

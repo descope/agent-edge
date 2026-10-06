@@ -29,7 +29,6 @@ export default {
         return protectedResourceMetadata(config);
       }
       if (url.pathname === "/auth.md") return authMd(config);
-      if (url.pathname === "/agents") return agentsPage(config);
     }
 
     let agent: AgentResult;
@@ -45,6 +44,12 @@ export default {
     const signedIn = hasCookie(request, config.agentSessionCookie);
     if (agent.status === "none" && signedIn) {
       agent = { status: "unverified", reason: "agent session cookie" };
+    }
+
+    // The agent page, served at the edge. A recognized agent's Connect button carries the
+    // same signed hint as the login redirect, so the front door knows what was verified here.
+    if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/agents") {
+      return agentsPage(config, await connectUrl(agent, config, url));
     }
 
     const action = decideAction(agent, config, url.pathname, signedIn);
@@ -129,6 +134,14 @@ async function redirectToFrontDoor(agent: AgentResult, config: Config, url: URL)
     status: 302,
     headers: { location: target.toString(), "cache-control": "no-store" },
   });
+}
+
+async function connectUrl(agent: AgentResult, config: Config, url: URL): Promise<string | undefined> {
+  if (!config.frontDoorUrl || !config.hintSigningSecret || agent.status === "none") return undefined;
+  const target = new URL(config.frontDoorUrl);
+  target.searchParams.set("return_to", `${url.origin}/`);
+  target.searchParams.set("agent_hint", await signAgentHint(agent, config.hintSigningSecret));
+  return target.toString();
 }
 
 function blocked(url: URL): Response {

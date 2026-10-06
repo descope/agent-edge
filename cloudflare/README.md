@@ -121,7 +121,7 @@ The front door is a separate Descope-hosted service, so this worker stays small.
 | Parameter | Value |
 | --- | --- |
 | `return_to` | Always sent. The page the agent was trying to reach. |
-| `agent_hint` | Optional. `base64url(JSON) + "." + base64url(HMAC-SHA256)`, where the JSON is `{ status, signature_agent, iat, exp }` and expires after 5 minutes. `signature_agent` is only set for agents whose Web Bot Auth signature verified. |
+| `agent_hint` | Optional. Also added to the "Connect your agent" button on `/agents` when the worker recognizes the agent, so agents that go through that page carry it too. `base64url(JSON) + "." + base64url(HMAC-SHA256)`, where the JSON is `{ status, signature_agent, iat, exp }` and expires after 5 minutes. `signature_agent` is only set for agents whose Web Bot Auth signature verified. |
 
 The front door then gets the agent a token in one of four ways:
 
