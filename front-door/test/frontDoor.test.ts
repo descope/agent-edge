@@ -331,3 +331,53 @@ test("each tier's access description goes in the approval message, with {site} f
   assert.match(calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message")!,
     /^An unverified agent wants to view your orders at Northbound\. Code [A-Z2-9]{6}$/);
 });
+
+/** A stand-in for a Workers rate limiting binding that records keys and refuses the ones in `blocked`. */
+function limiter(blocked: string[] = []) {
+  const keys: string[] = [];
+  return { keys, limit: async ({ key }: { key: string }) => { keys.push(key); return { success: !blocked.includes(key) }; } };
+}
+
+test("/connect is rate limited per IP and per email, before any CIBA request", async () => {
+  const byIp = limiter();
+  const byEmail = limiter(["pat@example.com"]);
+  const response = await worker.fetch(new Request("https://front-door.test/connect", {
+    method: "POST",
+    headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.7" },
+    body: JSON.stringify({ email: "Pat@Example.com" }),
+  }) as never, { ...env, CONNECT_IP_LIMITER: byIp, CONNECT_EMAIL_LIMITER: byEmail } as never, {} as never);
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get("retry-after"), "60");
+  assert.deepEqual(byIp.keys, ["203.0.113.7"]);
+  assert.deepEqual(byEmail.keys, ["pat@example.com"]);
+  assert.equal(calls.filter((c) => c.url === BC).length, 0);
+});
+
+test("a JSON request's handle only works from the IP that started it", async () => {
+  const started = await call(new Request("https://front-door.test/connect", {
+    method: "POST",
+    headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.7" },
+    body: JSON.stringify({ email: "pat@example.com" }),
+  }));
+  const { handle } = (await started.json()) as { handle: string };
+  const statusFrom = (ip: string) => call(new Request(`https://front-door.test/status?handle=${encodeURIComponent(handle)}`, {
+    headers: { "cf-connecting-ip": ip },
+  }));
+  assert.equal((await statusFrom("198.51.100.9")).status, 403);
+  assert.equal(((await (await statusFrom("203.0.113.7")).json()) as { status: string }).status, "pending");
+});
+
+test("a browser request's handle only works with the cookie set on its waiting page", async () => {
+  const started = await call(new Request("https://front-door.test/connect", {
+    method: "POST",
+    body: new URLSearchParams({ email: "pat@example.com" }),
+  }));
+  const bind = started.headers.getSetCookie().find((c) => c.startsWith("fd_bind="))!;
+  assert.match(bind, /Path=\/status/);
+  assert.match(bind, /HttpOnly/);
+  const handle = (await started.text()).match(/"handle":"([^"]+)"/)![1];
+  const statusUrl = `https://front-door.test/status?handle=${encodeURIComponent(handle)}`;
+  assert.equal((await call(new Request(statusUrl))).status, 403);
+  const withCookie = await call(new Request(statusUrl, { headers: { cookie: bind.split(";")[0] } }));
+  assert.equal(((await withCookie.json()) as { status: string }).status, "pending");
+});

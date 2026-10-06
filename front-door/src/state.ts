@@ -11,6 +11,12 @@ export interface PendingRequest {
   returnTo?: string;
   expiresAt: number;
   interval: number;
+  /**
+   * Ties the handle to the client that started the request, so a handle that leaks (from a
+   * log or a shared link) is no use to anyone else. Browser requests are tied to a cookie set
+   * on the waiting page, JSON requests to the client's IP.
+   */
+  binding?: { cookieHash?: string; ip?: string };
 }
 
 async function key(secret: string): Promise<CryptoKey> {

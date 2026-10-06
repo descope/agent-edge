@@ -1,8 +1,8 @@
-# Demo front door
+# Agent front door
 
-A stand-in for the Descope-hosted agent front door, so you can demo the full flow before the real one ships. It runs as a Cloudflare Worker and makes **real** Descope CIBA requests: the user gets a real approval email, signs in with their normal login, and sees the real consent screen.
+A reference implementation of the agent front door: where agents that can't open a browser go to get a user's approval. It runs as a Cloudflare Worker and makes **real** Descope CIBA requests. The user gets a real approval email, signs in with their normal login, and sees the real consent screen. The agent gets a real Descope token.
 
-It's for demos only. Delete it once Descope's hosted front door is available.
+Deploy it to see and test the pattern on your own site, and adapt it as you need. Descope is building a hosted front door that does the same job; when it ships, you can switch to it and retire this one. Before you put this in front of real users, read [Before production](#before-production).
 
 ## What it does
 
@@ -39,7 +39,7 @@ Agents that call your API directly still get the access token in the `/status` J
 sequenceDiagram
   autonumber
   participant A as Agent
-  participant F as Demo front door
+  participant F as Front door
   participant D as Descope
   actor U as User
   A->>F: GET / (or POST /connect with JSON)
@@ -72,7 +72,7 @@ sequenceDiagram
 ## Run it
 
 ```sh
-cd demo/front-door
+cd front-door
 npm install
 cp .dev.vars.example .dev.vars   # fill in STATE_SECRET and your credentials
 npm run dev                      # http://localhost:8788
@@ -100,14 +100,14 @@ curl "http://localhost:8788/status?handle=<handle from the response>"
 | Endpoint | What it does |
 | --- | --- |
 | `GET /` | The email form. Keeps `return_to` and `agent_hint` from the edge integration's redirect. |
-| `POST /connect` | Starts a CIBA request. Takes a form post or JSON `{ "email": "...", "agent_hint": "..." }`. JSON callers get `{ handle, code, agent_id, tier, status_url, interval, expires_in }`. |
-| `GET /status?handle=...` | Polls Descope. Returns `pending` with the `interval` to wait, `approved` with the access token, `denied`, `expired`, or `error`. If Descope asks it to slow down, `pending` also includes a new `handle` with a longer interval; use it for later polls. |
+| `POST /connect` | Starts a CIBA request. Takes a form post or JSON `{ "email": "...", "agent_hint": "..." }`. JSON callers get `{ handle, code, agent_id, tier, status_url, interval, expires_in }`. Returns `429` when rate limited. |
+| `GET /status?handle=...` | Polls Descope. Returns `pending` with the `interval` to wait, `approved` with the access token, `denied`, `expired`, or `error`. If Descope asks it to slow down, `pending` also includes a new `handle` with a longer interval; use it for later polls. Returns `403` if called from a different client than the one that started the request. |
 | `GET /jwks.json` | The front door's public key, for registering `private_key_jwt` with your inbound apps. |
 | `GET` or `POST /refresh` | Uses the `DSR` cookie to get a new access token and set a new `DS` cookie. `GET` with `return_to` redirects back; `POST` returns JSON. |
 
 ## Spending limits, until Descope supports RAR
 
-With Rich Authorization Requests (RFC 9396), the agent would ask for a specific limit, the user would approve that exact amount, and Descope would put it in the token. Until Descope supports RAR, the demo fakes it per tier:
+With Rich Authorization Requests (RFC 9396), the agent would ask for a specific limit, the user would approve that exact amount, and Descope would put it in the token. Until Descope supports RAR, the front door approximates it per tier:
 
 - **Descope sets the limit.** Each tier's inbound app adds a fixed `authorization_details` claim, shaped the way RAR would, with a JWT template or the Custom Claims action in the approval flow:
 
@@ -120,18 +120,25 @@ With Rich Authorization Requests (RFC 9396), the agent would ask for a specific 
 
 The difference from real RAR: the limit is fixed for each tier, so the user can approve or decline it but not change it. When Descope supports RAR, the claim comes from the user's approval instead, and the store's check doesn't change.
 
-## What it leaves out
+## Protections built in
 
-The real front door needs more than this demo has:
+- **Rate limits on `/connect`:** 10 requests a minute per IP and 3 per email address, checked before anything reaches Descope. Tune them in the `[[ratelimits]]` blocks in `wrangler.toml`. Cloudflare's rate limiting supports 10- and 60-second windows, so add a WAF rate limiting rule if you want longer ones.
+- **Handles are tied to the client that started the request.** A browser request's handle only works with the `fd_bind` cookie set on its waiting page. A JSON request's handle only works from the same IP address. A handle that leaks into a log or a shared link is no use to anyone else.
+- **Client credentials never leave the front door.** It signs `private_key_jwt` assertions or holds the client secrets, makes the token requests itself, and keeps the refresh token in a sealed cookie.
 
-- **No rate limits.** Anyone can make it send approval emails to any address. Don't leave it running on a public URL.
-- **Whoever holds the handle gets the token.** The handle is the encrypted request state. It isn't tied to the agent that started the request.
-- **No nonce replay cache** for Web Bot Auth signatures, and no verification of key directory signatures.
-- **The agent ID isn't in the token yet.** It's logged, and only appears in the token if Descope is set up to add it as a custom claim.
-- **Agents calling your API directly can't refresh.** The refresh token only lives in the browser cookie, so they get a fresh token by starting again.
-- **No sign-out.** There's no endpoint yet to revoke the tokens and clear the cookies.
+## Before production
 
-## Open questions for the real front door
+These are still open. Close the ones that matter for your site before putting the front door in front of real users:
+
+- **Replay protection for Web Bot Auth.** There's no nonce cache, so a captured signed request could be replayed within its validity window. Key directory signatures aren't verified either.
+- **IP binding for JSON clients.** An agent whose outgoing IP changes between `/connect` and `/status` (some cloud platforms rotate addresses) gets a `403` and has to start again. Bind to the agent's Web Bot Auth key instead if that's a problem for you.
+- **Spending limits are fixed per tier,** not true RAR, and the store has to track the `period` itself.
+- **The agent ID isn't in the token** unless Descope is set up to add it as a custom claim. It's always in the front door's logs.
+- **Agents calling your API directly can't refresh.** The refresh token only lives in the browser cookie, so they get a new token by connecting again.
+- **No sign-out or revocation endpoint** yet for clearing the cookies and revoking the tokens.
+- **Longer rate limit windows and bot protection,** such as a WAF rule or Turnstile on the email form, if the per-minute limits aren't enough.
+
+## Open questions about Descope
 
 - **The `private_key_jwt` audience.** The assertion lists both the issuer and the endpoint as its audience. Confirm which one Descope expects.
 - **Getting the agent ID into the token,** most likely through a custom claim set in the consent flow.

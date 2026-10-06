@@ -1,7 +1,8 @@
-# Demo stand-in for the Descope-hosted agent front door. Not for production.
+# Reference implementation of the agent front door: a Cloudflare Worker that gets the user's
+# approval with Descope CIBA. Read "Before production" in the README before using it on a real site.
 # Run it locally with `npm run dev`, or deploy it with `npm run deploy`.
 
-name = "agent-ready-demo-front-door"
+name = "agent-ready-front-door"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 
@@ -10,6 +11,19 @@ port = 8788
 
 [observability]
 enabled = true
+
+# Rate limits on /connect, so the front door can't be used to flood inboxes with approval
+# requests. Cloudflare supports periods of 10 or 60 seconds; add a WAF rate limiting rule
+# for longer windows.
+[[ratelimits]]
+name = "CONNECT_IP_LIMITER"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "CONNECT_EMAIL_LIMITER"
+namespace_id = "1002"
+simple = { limit = 3, period = 60 }
 
 [vars]
 # Your site's display name, shown on the connect page and in the approval message.

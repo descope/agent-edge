@@ -112,7 +112,7 @@ sequenceDiagram
 
 The front door serves the page with the email field, so the edge integration never handles the user's email. Browser agents fill it in like any form. Agents that read `/auth.md` or `/agents` instead of the login page get pointed to the same page, starting at step 4.
 
-What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead. The front door sets the access token as a cookie on your domain, so the agent's browser sends it on every request without adding a header. Your site has to accept the token from that cookie. See [Browser agents get a session cookie](demo/front-door/README.md#browser-agents-get-a-session-cookie).
+What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead. The front door sets the access token as a cookie on your domain, so the agent's browser sends it on every request without adding a header. Your site has to accept the token from that cookie. See [Browser agents get a session cookie](front-door/README.md#browser-agents-get-a-session-cookie).
 
 ### What the user sees when approving
 
@@ -161,6 +161,6 @@ The `x-descope-agent` headers are useful for logging and for treating unauthenti
 
 Each platform folder is a self-contained project with its own dependencies, tests, and README. Code is not shared between platforms yet; a common core may be extracted once a second platform exists.
 
-## Demo
+## Front door
 
-[`demo/front-door/`](demo/front-door/) is a stand-in for the Descope-hosted front door, so you can demo the full flow for agents that can't open a browser before the real one ships. It makes real Descope CIBA requests.
+[`front-door/`](front-door/) is a reference implementation of the agent front door: a Cloudflare Worker that gets the user's approval with real Descope CIBA requests, signs browser agents in with a session cookie, and shows each agent tier's limits on the consent screen. Deploy it to try the full flow for agents that can't open a browser, and adapt it to your site. Descope's hosted front door will do the same job once it ships. Read [Before production](front-door/README.md#before-production) before putting it in front of real users.

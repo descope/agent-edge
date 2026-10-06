@@ -1,8 +1,8 @@
 {
-  "name": "agent-ready-demo-front-door",
+  "name": "agent-ready-front-door",
   "version": "0.1.0",
   "private": true,
-  "description": "Demo stand-in for the Descope-hosted agent front door. Starts real Descope CIBA requests for agents that can't open a browser.",
+  "description": "Reference implementation of the Descope agent front door. Starts real Descope CIBA requests for agents that can't open a browser.",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

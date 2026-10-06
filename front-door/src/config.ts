@@ -1,4 +1,13 @@
+/** A Workers rate limiting binding ([[ratelimits]] in wrangler.toml). */
+export interface RateLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 export interface Env {
+  /** Optional. Limits /connect per client IP. */
+  CONNECT_IP_LIMITER?: RateLimiter;
+  /** Optional. Limits /connect per email address, so one inbox can't be flooded with approval requests. */
+  CONNECT_EMAIL_LIMITER?: RateLimiter;
   SITE_NAME?: string;
   DESCOPE_DISCOVERY_URL: string;
   UNVERIFIED_CLIENT_ID: string;
