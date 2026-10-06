@@ -39,7 +39,15 @@ export default {
       agent = { status: "none", reason: `detection error: ${String(error)}` };
     }
 
-    const action = decideAction(agent, config, url.pathname, hasCookie(request, config.agentSessionCookie));
+    // A browser carrying the front door's session cookie is an agent acting for a user,
+    // even when its user agent looks like an ordinary browser. Treating it as one keeps
+    // blocked paths blocked and puts its requests in the agent logs.
+    const signedIn = hasCookie(request, config.agentSessionCookie);
+    if (agent.status === "none" && signedIn) {
+      agent = { status: "unverified", reason: "agent session cookie" };
+    }
+
+    const action = decideAction(agent, config, url.pathname, signedIn);
 
     if (agent.status !== "none") {
       console.log(JSON.stringify({

@@ -100,3 +100,22 @@ test("an agent that already has a session cookie isn't sent back to the front do
   const notSignedIn = await worker.fetch(lookalike as never, { ...env, FRONT_DOOR_URL: "https://agents.example.com" }, ctx);
   assert.equal(notSignedIn.status, 302);
 });
+
+test("a request with the agent session cookie is blocked from agent-blocked paths, even with a browser user agent", async () => {
+  let forwarded = 0;
+  globalThis.fetch = (async () => { forwarded++; return new Response("ok"); }) as typeof fetch;
+  const request = new Request("https://example.com/account/payment-methods", {
+    method: "POST",
+    headers: { "user-agent": "Mozilla/5.0 (Macintosh) Chrome/154.0", cookie: "DS=eyJhbGciOi.payload.sig" },
+  });
+  const response = await worker.fetch(request as never, { ...env, BLOCKED_AGENT_PATHS: "/account/payment-methods*" }, ctx);
+  assert.equal(response.status, 403);
+  assert.equal(forwarded, 0);
+
+  // The same request from a person (no agent cookie) goes through.
+  const person = new Request("https://example.com/account/payment-methods", {
+    method: "POST",
+    headers: { "user-agent": "Mozilla/5.0 (Macintosh) Chrome/154.0" },
+  });
+  assert.equal((await worker.fetch(person as never, { ...env, BLOCKED_AGENT_PATHS: "/account/payment-methods*" }, ctx)).status, 200);
+});
