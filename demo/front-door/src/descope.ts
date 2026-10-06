@@ -63,7 +63,13 @@ async function post(url: string, params: Record<string, string>): Promise<{ stat
   });
   const text = await response.text();
   try {
-    return { status: response.status, body: JSON.parse(text) };
+    const body = JSON.parse(text) as Record<string, unknown>;
+    // Descope reports errors as { errorCode, errorDescription } rather than OAuth's { error, error_description }.
+    if (body.error === undefined && body.errorCode !== undefined) {
+      body.error = body.errorCode;
+      body.error_description = body.errorDescription ?? body.errorMessage;
+    }
+    return { status: response.status, body };
   } catch {
     return { status: response.status, body: { error: "invalid_response", error_description: text.slice(0, 200) } };
   }

@@ -296,3 +296,15 @@ test("a rejected refresh clears the cookies", async () => {
   assert.match(cookie(response, "DS")!, /Max-Age=0/);
   assert.match(cookie(response, "DSR")!, /Max-Age=0/);
 });
+
+test("Descope's own error format is reported, not just the status code", async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === BC) return Response.json({ errorCode: "E074130", errorDescription: "Invalid client id" }, { status: 400 });
+    return real(input, init);
+  }) as typeof fetch;
+  const response = await connectJson({ email: "pat@example.com" });
+  const body = (await response.json()) as { message: string };
+  assert.match(body.message, /E074130/);
+  assert.match(body.message, /Invalid client id/);
+});
