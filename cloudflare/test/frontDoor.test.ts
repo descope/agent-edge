@@ -142,3 +142,11 @@ test("auth.md tells agents without a browser how to use the front door", async (
   assert.match(md, /POST https:\/\/agents\.example\.com\/connect/);
   assert.match(md, /status_url/);
 });
+
+test("auth.md is also served at /.well-known/auth.md", async () => {
+  globalThis.fetch = (async () => { throw new Error("should not reach the origin"); }) as typeof fetch;
+  const response = await worker.fetch(new Request("https://example.com/.well-known/auth.md") as never, env, ctx);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /text\/markdown/);
+  assert.match(await response.text(), /# Authentication for AI agents/);
+});

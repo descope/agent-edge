@@ -30,7 +30,7 @@ flowchart LR
 
 The integration runs at the edge, in front of your site. For each request it:
 
-1. **Answers discovery requests itself.** `/.well-known/oauth-protected-resource`, `/auth.md`, and `/agents` are served at the edge and point to your Descope project, so your origin never sees them.
+1. **Answers discovery requests itself.** `/.well-known/oauth-protected-resource`, `/auth.md` (also at `/.well-known/auth.md`), and `/agents` are served at the edge and point to your Descope project, so your origin never sees them.
 2. **Checks whether the caller is an agent.** A valid Web Bot Auth signature, checked against the agent platform's published keys, marks the request `verified`. Without one, the platform's own bot signals and user-agent hints can still flag it, usually as `unverified`.
 3. **Decides what to do.** In monitor mode it logs the agent and passes the request through. In route mode it also returns a 403 on paths agents may never use, such as password and payment changes. Once the front door is available, route mode will also redirect agents on login pages there.
 4. **Forwards everything else** to your site, with `x-descope-agent` and `x-descope-agent-origin` headers so your app knows which requests came from agents.

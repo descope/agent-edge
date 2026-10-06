@@ -7,7 +7,7 @@ A Cloudflare Worker you deploy in front of your site to get it ready for AI agen
 It does six things:
 
 - **Verifies agents.** Checks Web Bot Auth signatures (RFC 9421) against each agent platform's published keys, and falls back to Cloudflare's verified bot signal and user-agent hints.
-- **Publishes discovery files.** Serves `/.well-known/oauth-protected-resource`, `/auth.md`, and an `/agents` page that point agents at your Descope authorization server.
+- **Publishes discovery files.** Serves `/.well-known/oauth-protected-resource`, `/auth.md` (also at `/.well-known/auth.md`), and an `/agents` page that point agents at your Descope authorization server.
 - **Routes agents.** Blocks agents from sensitive pages such as password and payment changes. Once the Descope-hosted front door is available, it also sends agents that land on your human login page there.
 - **Tells your origin.** Adds `x-descope-agent` and `x-descope-agent-origin` headers so your app can see which requests came from agents.
 - **Points MCP and OAuth clients at Descope.** Adds `WWW-Authenticate: Bearer resource_metadata="..."` to 401s from your API paths. MCP clients discover the authorization server from that header, so they find Descope on their own even though your API has never heard of it.
@@ -144,7 +144,7 @@ The user approves the request from their own device through CIBA, and the token 
 - **It doesn't keep a nonce replay cache or verify key directory signatures.** That's fine for identification and routing, but add both before using verification results for anything more sensitive.
 - **The login hint uses inline styles.** If your login page sets a strict Content Security Policy that blocks inline styles, the hidden note becomes visible. Allow it in your policy, or set `INJECT_LOGIN_HINT = "false"`.
 - **The discovery challenge is a pointer, not protection.** It tells clients where to get a token. Your API or a gateway still has to check the token.
-- **Check for path conflicts.** If your site already serves `/agents` or `/auth.md`, rename them or remove those routes from `src/index.ts`.
+- **Check for path conflicts.** If your site already serves `/agents`, `/auth.md`, or `/.well-known/auth.md`, rename them or remove those routes from `src/index.ts`.
 - **Cloudflare also verifies Web Bot Auth.** If your zone uses Cloudflare's own verification, review Cloudflare's guidance on running your own verification alongside it.
 - **The agent hint needs the front door.** It's optional, only sent once `FRONT_DOOR_URL` is set, and ignored unless the front door is configured with the same secret.
 

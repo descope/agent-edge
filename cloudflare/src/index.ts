@@ -28,7 +28,7 @@ export default {
           url.pathname.startsWith("/.well-known/oauth-protected-resource/")) {
         return protectedResourceMetadata(config);
       }
-      if (url.pathname === "/auth.md") return authMd(config);
+      if (url.pathname === "/auth.md" || url.pathname === "/.well-known/auth.md") return authMd(config);
     }
 
     let agent: AgentResult;
