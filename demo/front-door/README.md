@@ -9,7 +9,7 @@ It's for demos only. Delete it once Descope's hosted front door is available.
 1. **Shows agents an email form.** `GET /` serves a page with a hidden note for agents and a field for the user's email. Agents without a browser can `POST /connect` with JSON instead.
 2. **Works out who the agent is.** It verifies a Web Bot Auth signature on the request itself, or trusts the edge integration's signed `agent_hint`, or treats the agent as unverified.
 3. **Picks a client for that tier.** Trusted platforms get their own inbound app. Verified agents from other platforms share one client, and unverified agents share another.
-4. **Starts a real CIBA request** against your Descope inbound app. The approval message names the tier and includes a short code that the agent also shows the user, so the user can check that the request is theirs.
+4. **Starts a real CIBA request** against your Descope inbound app. The approval message says who is asking, what they want to do, and a short code that the agent also shows the user, so the user can check that the request is theirs. What each tier asks to do comes from `TRUSTED_ACCESS`, `VERIFIED_ACCESS`, and `UNVERIFIED_ACCESS`, for example "An agent from chatgpt.com wants to place orders up to $200 at Northbound over the next 7 days. Code K7Q2XM".
 5. **Waits for approval.** The waiting page, or an agent calling `GET /status`, polls Descope until the user approves or declines, then returns the access token. The refresh token stays with the front door.
 
 Each request also gets an agent ID (`agt_...`) that's logged with every event, so requests on the shared clients can be told apart.
@@ -104,6 +104,21 @@ curl "http://localhost:8788/status?handle=<handle from the response>"
 | `GET /status?handle=...` | Polls Descope. Returns `pending` with the `interval` to wait, `approved` with the access token, `denied`, `expired`, or `error`. If Descope asks it to slow down, `pending` also includes a new `handle` with a longer interval; use it for later polls. |
 | `GET /jwks.json` | The front door's public key, for registering `private_key_jwt` with your inbound apps. |
 | `GET` or `POST /refresh` | Uses the `DSR` cookie to get a new access token and set a new `DS` cookie. `GET` with `return_to` redirects back; `POST` returns JSON. |
+
+## Spending limits, until Descope supports RAR
+
+With Rich Authorization Requests (RFC 9396), the agent would ask for a specific limit, the user would approve that exact amount, and Descope would put it in the token. Until Descope supports RAR, the demo fakes it per tier:
+
+- **Descope sets the limit.** Each tier's inbound app adds a fixed `authorization_details` claim, shaped the way RAR would, with a JWT template or the Custom Claims action in the approval flow:
+
+  ```json
+  [{ "type": "purchase", "max_amount": { "value": "200.00", "currency": "USD" }, "period": "P7D" }]
+  ```
+
+- **The user sees it.** The tier's `*_ACCESS` text puts the same limit in the approval message on the consent screen. Keep the two in step.
+- **The store enforces it.** Northbound's checkout rejects an agent's order above `max_amount`, and refuses orders from agents whose token has no purchase limit.
+
+The difference from real RAR: the limit is fixed for each tier, so the user can approve or decline it but not change it. When Descope supports RAR, the claim comes from the user's approval instead, and the store's check doesn't change.
 
 ## What it leaves out
 

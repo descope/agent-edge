@@ -7,6 +7,9 @@ export interface Env {
   TRUSTED_SCOPES?: string;
   VERIFIED_SCOPES?: string;
   UNVERIFIED_SCOPES?: string;
+  TRUSTED_ACCESS?: string;
+  VERIFIED_ACCESS?: string;
+  UNVERIFIED_ACCESS?: string;
   STATE_SECRET: string;
   HINT_SIGNING_SECRET?: string;
   PRIVATE_KEY_JWK?: string;
@@ -25,6 +28,8 @@ export interface Config {
   discoveryUrl: string;
   clients: { unverified: string; verified: string; trusted: Record<string, string> };
   scopes: Record<Tier, string>;
+  /** What each tier is asking to do, in words the user reads on the consent screen. */
+  access: Record<Tier, string>;
   stateSecret: string;
   hintSigningSecret?: string;
   privateKey?: JsonWebKey & { kid?: string };
@@ -62,6 +67,11 @@ export function loadConfig(env: Env): Config {
       trusted: env.TRUSTED_SCOPES || "openid",
       verified: env.VERIFIED_SCOPES || "openid",
       unverified: env.UNVERIFIED_SCOPES || "openid",
+    },
+    access: {
+      trusted: env.TRUSTED_ACCESS || "connect to {site}",
+      verified: env.VERIFIED_ACCESS || "connect to {site}",
+      unverified: env.UNVERIFIED_ACCESS || "connect to {site}",
     },
     stateSecret: required("STATE_SECRET", env.STATE_SECRET),
     hintSigningSecret: env.HINT_SIGNING_SECRET || undefined,

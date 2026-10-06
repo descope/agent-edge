@@ -66,7 +66,7 @@ async function connect(request: Request, config: Config): Promise<Response> {
     clientId,
     email,
     scope: config.scopes[agent.tier],
-    bindingMessage: `${agentLabel(agent)} wants to connect to ${config.siteName}. Code ${code}`,
+    bindingMessage: `${agentLabel(agent)} wants to ${config.access[agent.tier].replaceAll("{site}", config.siteName)}. Code ${code}`,
   });
 
   const pending: PendingRequest = {

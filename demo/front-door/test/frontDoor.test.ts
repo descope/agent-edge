@@ -310,3 +310,24 @@ test("Descope's own error format is reported, not just the status code", async (
   assert.match(body.message, /E074130/);
   assert.match(body.message, /Invalid client id/);
 });
+
+test("each tier's access description goes in the approval message, with {site} filled in", async () => {
+  const overrides = {
+    TRUSTED_ACCESS: "place orders up to $200 at {site} over the next 7 days",
+    UNVERIFIED_ACCESS: "view your orders at {site}",
+  };
+  const hint = await edgeHint({ status: "verified", signature_agent: "https://agent.example", iat: now(), exp: now() + 300 });
+  const trusted = await call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "pat@example.com", agent_hint: hint }),
+  }), overrides);
+  const { code } = (await trusted.json()) as { code: string };
+  assert.equal(calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message"),
+    `An agent from agent.example wants to place orders up to $200 at Northbound over the next 7 days. Code ${code}`);
+
+  await call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "pat@example.com" }),
+  }), overrides);
+  assert.match(calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message")!,
+    /^An unverified agent wants to view your orders at Northbound\. Code [A-Z2-9]{6}$/);
+});
