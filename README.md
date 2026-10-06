@@ -114,6 +114,20 @@ The front door serves the page with the email field, so the edge integration nev
 
 What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead. The front door sets the access token as a cookie on your domain, so the agent's browser sends it on every request without adding a header. Your site has to accept the token from that cookie. See [Browser agents get a session cookie](demo/front-door/README.md#browser-agents-get-a-session-cookie).
 
+### What the user sees when approving
+
+CIBA doesn't skip signing in. The approval link opens a Descope flow, the CIBA approval flow you choose on the inbound app, and that flow does three things:
+
+1. **Signs the user in.** Use any method Descope supports: social or OAuth sign-in (Google, Apple), a magic link, a one-time code by email or text, or a passkey. To keep users on the login they already have, replace Descope's sign-in step with your own using the **External Authentication** action in the flow. Users then approve with the same account and credentials they use on your site today.
+2. **Shows the consent screen.** This is the step that makes delegation meaningful. It tells the user, in plain language:
+   - **which agent is asking**, and whether its platform was verified
+   - **what it will be able to do**: the scopes requested
+   - **the binding message**, including the short code the agent also shows the user, so they can check the request is theirs
+   - **any limits in `authorization_details` (RAR)**, such as "up to $200 at Northbound over the next 7 days"
+
+   Consent only carries weight when the user can tell what they agreed to, so design this screen to be read, not clicked through.
+3. **Records the decision.** The flow's CIBA Approval step marks the request approved or denied. The agent, which has been polling, gets its token or a refusal.
+
 ## Next steps: accept the tokens in your backend
 
 With the edge integration in place, agents have a standard way to sign in to your app on a user's behalf, and every token they get says which agent is acting for which user. The last step is on your side: accept those tokens.

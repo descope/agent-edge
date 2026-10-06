@@ -35,7 +35,7 @@ The Deploy to Cloudflare button above copies this folder into a new repo in your
    npm install
    ```
 
-2. **Fill in `wrangler.toml`.** At minimum, set `DESCOPE_ISSUER`, `RESOURCE_URL`, and `SITE_NAME`. Leave `FRONT_DOOR_URL` unset until the front door is available. Adjust `LOGIN_PATHS` and `BLOCKED_AGENT_PATHS` to match your site.
+2. **Fill in `wrangler.toml`.** At minimum, set `SITE_NAME` to your site's name (for example `"Northbound"`), `DESCOPE_ISSUER`, and `RESOURCE_URL`. Leave `FRONT_DOOR_URL` unset until the front door is available. Adjust `LOGIN_PATHS` and `BLOCKED_AGENT_PATHS` to match your site.
 
 3. **Add your route.** Uncomment the `routes` block and replace `example.com` with your zone.
 
@@ -85,7 +85,7 @@ To send a properly signed request, use Cloudflare's [web-bot-auth](https://githu
 | Variable | What it does |
 | --- | --- |
 | `MODE` | `monitor` logs only. `route` also redirects and blocks. |
-| `SITE_NAME` | Display name on the `/agents` page and in `auth.md`. |
+| `SITE_NAME` | Your site's name, such as `Northbound`. Shown on the `/agents` page, in `auth.md`, and in the note added to login pages. Set the same name on the front door. |
 | `DESCOPE_ISSUER` | Your Descope authorization server URL. |
 | `FRONT_DOOR_URL` | The Descope-hosted agent front door. Optional, and not available yet. Without it, agents on login pages aren't redirected. |
 | `RESOURCE_URL` | The resource identifier agents request tokens for. |

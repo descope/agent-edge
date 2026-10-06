@@ -60,7 +60,7 @@ sequenceDiagram
 
 ## Set up Descope
 
-1. **Create an inbound app** for unverified agents, and turn on **CIBA** in its settings. Pick an email connector and template for the approval email.
+1. **Create an inbound app** for unverified agents, and turn on **CIBA** in its settings. Pick an email connector and template for the approval email, and the flow that runs when the user opens the approval link. That flow signs the user in and shows the consent screen. See [What the user sees when approving](../../README.md#what-the-user-sees-when-approving).
 2. **Optionally create more inbound apps:** one shared app for verified agents from unknown platforms, and one for each platform you trust.
 3. **Copy the inbound app's Discovery URL** from the Descope Console. The front door reads the CIBA and token endpoints from it.
 4. **Choose how the front door authenticates:**
@@ -78,7 +78,7 @@ cp .dev.vars.example .dev.vars   # fill in STATE_SECRET and your credentials
 npm run dev                      # http://localhost:8788
 ```
 
-Fill in `DESCOPE_DISCOVERY_URL`, `UNVERIFIED_CLIENT_ID`, and optionally `VERIFIED_CLIENT_ID` and `TRUSTED_PLATFORMS` in `wrangler.toml`.
+In `wrangler.toml`, set `SITE_NAME` to your site's name (for example `"Northbound"`); it appears on the connect page and in the approval message the user sees. Then fill in `DESCOPE_DISCOVERY_URL`, `UNVERIFIED_CLIENT_ID`, and optionally `VERIFIED_CLIENT_ID` and `TRUSTED_PLATFORMS`. Use the same `SITE_NAME` as the edge integration.
 
 To run the whole flow locally, start the edge integration in route mode and point it here. Use the same `HINT_SIGNING_SECRET` in both:
 
