@@ -18,6 +18,8 @@ export interface Env {
   LOGIN_HINT_VISIBLE?: string;
   /** Local development only: forward to this origin instead of the request's host. */
   UPSTREAM_ORIGIN?: string;
+  /** The cookie the front door sets once an agent is signed in. Defaults to DS. */
+  AGENT_SESSION_COOKIE?: string;
 }
 
 export type Mode = "monitor" | "route";
@@ -40,6 +42,7 @@ export interface Config {
   injectLoginHint: boolean;
   loginHintVisible: boolean;
   upstreamOrigin?: string;
+  agentSessionCookie: string;
 }
 
 function list(value: string | undefined): string[] {
@@ -89,6 +92,7 @@ export function loadConfig(env: Env): Config {
     injectLoginHint: env.INJECT_LOGIN_HINT !== "false",
     loginHintVisible: env.LOGIN_HINT_VISIBLE !== "false",
     upstreamOrigin: env.UPSTREAM_ORIGIN ? requiredUrl("UPSTREAM_ORIGIN", env.UPSTREAM_ORIGIN) : undefined,
+    agentSessionCookie: env.AGENT_SESSION_COOKIE || "DS",
   };
 }
 

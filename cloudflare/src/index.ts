@@ -39,7 +39,7 @@ export default {
       agent = { status: "none", reason: `detection error: ${String(error)}` };
     }
 
-    const action = decideAction(agent, config, url.pathname);
+    const action = decideAction(agent, config, url.pathname, hasCookie(request, config.agentSessionCookie));
 
     if (agent.status !== "none") {
       console.log(JSON.stringify({
@@ -96,11 +96,19 @@ function upstreamUrl(url: URL, config: Config): string {
   return new URL(url.pathname + url.search, config.upstreamOrigin).toString();
 }
 
-function decideAction(agent: AgentResult, config: Config, path: string): Action {
+function decideAction(agent: AgentResult, config: Config, path: string, signedIn: boolean): Action {
   if (agent.status === "none" || config.mode !== "route") return "pass";
   if (pathMatches(path, config.blockedAgentPaths)) return "block";
-  if (config.frontDoorUrl && pathMatches(path, config.loginPaths)) return "redirect";
+  // An agent the front door already signed in goes back to the login page as the user,
+  // so sending it to the front door again would loop. This only skips a convenience
+  // redirect; the site still checks the cookie's token itself.
+  if (config.frontDoorUrl && !signedIn && pathMatches(path, config.loginPaths)) return "redirect";
   return "pass";
+}
+
+function hasCookie(request: Request, name: string): boolean {
+  const header = request.headers.get("cookie") ?? "";
+  return header.split(/;\s*/).some((part) => part.startsWith(`${name}=`) && part.length > name.length + 1);
 }
 
 async function redirectToFrontDoor(agent: AgentResult, config: Config, url: URL): Promise<Response> {

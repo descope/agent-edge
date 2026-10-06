@@ -74,3 +74,29 @@ test("without a front door, /agents tells people what to do", async () => {
   assert.doesNotMatch(visible, /Connect it here/);
   assert.match(visible, /assistant's settings/);
 });
+
+test("an agent that already has a session cookie isn't sent back to the front door", async () => {
+  const forwarded: Request[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    forwarded.push(new Request(input as RequestInfo, init));
+    return new Response("ok");
+  }) as typeof fetch;
+  const signedIn = new Request("https://example.com/login", {
+    headers: { "user-agent": "HeadlessChrome/126.0", cookie: "theme=dark; DS=eyJhbGciOi.payload.sig" },
+  });
+  const response = await worker.fetch(signedIn as never, { ...env, FRONT_DOOR_URL: "https://agents.example.com" }, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(forwarded.length, 1);
+
+  // A custom cookie name works too, and a cookie that merely ends in "DS" doesn't count.
+  const renamed = new Request("https://example.com/login", {
+    headers: { "user-agent": "HeadlessChrome/126.0", cookie: "agent_at=x" },
+  });
+  const custom = await worker.fetch(renamed as never, { ...env, FRONT_DOOR_URL: "https://agents.example.com", AGENT_SESSION_COOKIE: "agent_at" }, ctx);
+  assert.equal(custom.status, 200);
+  const lookalike = new Request("https://example.com/login", {
+    headers: { "user-agent": "HeadlessChrome/126.0", cookie: "XDS=x" },
+  });
+  const notSignedIn = await worker.fetch(lookalike as never, { ...env, FRONT_DOOR_URL: "https://agents.example.com" }, ctx);
+  assert.equal(notSignedIn.status, 302);
+});
