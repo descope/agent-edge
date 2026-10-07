@@ -11,6 +11,18 @@ Each edge integration does the same jobs:
 
 Integrations start in monitor mode and fail open, so they can be deployed safely before they change any traffic.
 
+## What's in this repo
+
+| Folder | What it is |
+| --- | --- |
+| [`cloudflare/`](cloudflare/) | The edge integration: a Cloudflare Worker you put in front of your site |
+| [`front-door/`](front-door/) | The front door: where agents get the customer's approval through Descope, with the device flow or CIBA. A reference implementation for trying the flow. |
+
+Vercel and Amazon CloudFront integrations are coming soon. Each folder is a self-contained project with its own README.
+
+> [!NOTE]
+> A hosted front door is coming soon from Descope.
+
 ## How it works
 
 When an AI agent reaches a login page today, it asks the user for their password and signs in as them, so the site can't tell the agent from the customer. These integrations give agents their own way in. The agent is identified, the user approves what it may do from their own device, and Descope issues a token that names both the user and the agent and carries the limits the user approved.
@@ -148,17 +160,3 @@ Either way, check the signature, issuer, audience, and expiry, and accept Descop
   - **For APIs,** return `403` with `WWW-Authenticate: Bearer error="insufficient_scope", scope="orders:write"` (RFC 6750). OAuth and MCP clients read that and ask the customer for the extra scope.
 
 The `x-descope-agent` headers are useful for logging and for treating unauthenticated agent traffic differently. Base authorization decisions on the token, not the headers.
-
-## Platforms
-
-| Platform | Folder | Status |
-| --- | --- | --- |
-| Cloudflare Workers | [`cloudflare/`](cloudflare/) | Available |
-| Vercel | — | Planned |
-| Amazon CloudFront | — | Planned |
-
-Each platform folder is a self-contained project with its own dependencies, tests, and README. Code is not shared between platforms yet; a common core may be extracted once a second platform exists.
-
-## Front door
-
-[`front-door/`](front-door/) is a reference implementation of the agent front door: a Cloudflare Worker that gets the user's approval with real Descope CIBA requests, signs browser agents in with a session cookie, connects agents read-only, and runs step-up approvals when the store needs one for a purchase. A hosted front door is coming soon from Descope.
