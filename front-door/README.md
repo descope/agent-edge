@@ -2,7 +2,7 @@
 
 A reference implementation of the agent front door: where agents that can't open a browser go to get a user's approval. It runs as a Cloudflare Worker and uses Descope as the authorization server. Agents connect with the device flow, or with CIBA as a fallback. The user approves on their own device, on a real Descope consent screen, and the agent gets a real Descope token.
 
-A hosted front door is coming soon from Descope.
+It's for trying the flow, not for production. A hosted front door is coming soon from Descope.
 
 ## What it does
 
@@ -159,15 +159,3 @@ The approval message shows the exact amount, but the token only carries the scop
 - **Rate limits on `/connect`:** 10 requests a minute per IP and 3 per email address, checked before anything reaches Descope. Tune them in the `[[ratelimits]]` blocks in `wrangler.toml`. Cloudflare's rate limiting supports 10- and 60-second windows, so add a WAF rate limiting rule if you want longer ones.
 - **Handles are tied to the client that started the request.** A browser request's handle only works with the `fd_bind` cookie set on its waiting page. A JSON request's handle only works from the same IP address. A handle that leaks into a log or a shared link is no use to anyone else.
 - **Client credentials never leave the front door.** It signs `private_key_jwt` assertions or holds the client secrets, makes the token requests itself, and keeps the refresh token in a sealed cookie.
-
-## Before production
-
-These are still open. Close the ones that matter for your site before putting the front door in front of real users:
-
-- **Replay protection for Web Bot Auth.** There's no nonce cache, so a captured signed request could be replayed within its validity window. Key directory signatures aren't verified either.
-- **IP binding for JSON clients.** An agent whose outgoing IP changes between `/connect` and `/status` (some cloud platforms rotate addresses) gets a `403` and has to start again. Bind to the agent's Web Bot Auth key instead if that's a problem for you.
-- **A step-up approves a scope, not an amount.** Keep the `orders:write` token short-lived until RAR can carry the exact order.
-- **The agent ID isn't in the token** unless Descope is set up to add it as a custom claim. It's always in the front door's logs.
-- **Agents calling your API directly can't refresh.** The refresh token only lives in the browser cookie, so they get a new token by connecting again.
-- **No sign-out or revocation endpoint** yet for clearing the cookies and revoking the tokens.
-- **Longer rate limit windows and bot protection,** such as a WAF rule or Turnstile on the email form, if the per-minute limits aren't enough.
