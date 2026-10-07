@@ -7,18 +7,15 @@ A Cloudflare Worker that sits in front of your site and lets customers' AI agent
 ## What it does
 
 ```mermaid
-flowchart TD
-  req[Request to your site] --> disc{"Discovery path?<br/>/agents,<br/>/.well-known/oauth-protected-resource"}
-  disc -- yes --> served[Answered by the Worker]
-  disc -- no --> agent{"Is it an agent?<br/>Web Bot Auth signature,<br/>session cookie, user agent"}
-  agent -- no --> site[Your site, unchanged]
-  agent -- yes --> mode{Route mode?}
-  mode -- no --> logged[Logged, then forwarded<br/>with agent headers]
-  mode -- yes --> path{Which page?}
-  path -- login page --> door[Redirect to the front door]
-  path -- blocked page --> blocked[403]
-  path -- anything else --> logged
-  logged --> site
+flowchart LR
+  req[Request] --> disc{Discovery<br/>path?}
+  disc -- yes --> served[Worker answers]
+  disc -- no --> agent{Agent?}
+  agent -- no --> site[Your site]
+  agent -- yes --> page{Route mode:<br/>which page?}
+  page -- login --> door[Front door]
+  page -- blocked --> blocked[403]
+  page -- "other, or monitor mode" --> site
 ```
 
 - **Finds agents** by Web Bot Auth signature, the front door's session cookie, Cloudflare's verified bots, or their user agent.
