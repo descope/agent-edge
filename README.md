@@ -11,9 +11,21 @@ Each edge integration does the same jobs:
 
 Integrations start in monitor mode and fail open, so they can be deployed safely before they change any traffic.
 
+## What's in this repo
+
+| Folder | What it is |
+| --- | --- |
+| [`cloudflare/`](cloudflare/) | The edge integration: a Cloudflare Worker you put in front of your site |
+| [`front-door/`](front-door/) | An example front door, deployed to protect [Northbound](https://github.com/descope-sample-apps/northbound-sample-app): where agents get the customer's approval through Descope, with the device flow or CIBA |
+
+Vercel and Amazon CloudFront integrations are coming soon. Each folder is a self-contained project with its own README.
+
+> [!NOTE]
+> A hosted front door is coming soon from Descope.
+
 ## How it works
 
-When an AI agent reaches a login page today, it asks the user for their password and signs in as them, so the site can't tell the agent from the customer. These integrations give agents their own way in. The agent is identified, the user approves what it may do from their own device, and Descope issues a token that names both the user and the agent and carries the limits the user approved. [Letting your customers' AI agents in](TODO-blog-url) covers the background.
+When an AI agent reaches a login page today, it asks the user for their password and signs in as them, so the site can't tell the agent from the customer. These integrations give agents their own way in. The agent is identified, the user approves what it may do from their own device, and Descope issues a token that names both the user and the agent and carries the limits the user approved.
 
 ```mermaid
 flowchart LR
@@ -28,13 +40,13 @@ flowchart LR
   agent -- "Bearer token" --> site
 ```
 
-The integration runs at the edge, in front of your site. For each request it:
+The integration runs at the edge, in front of your site. For each request, it:
 
-1. **Answers discovery requests itself.** `/.well-known/oauth-protected-resource` and `/agents` are served at the edge and point to your Descope project, so your origin never sees them.
-2. **Checks whether the caller is an agent.** A valid Web Bot Auth signature, checked against the agent platform's published keys, marks the request `verified`. Without one, the platform's own bot signals and user-agent hints can still flag it, usually as `unverified`.
-3. **Decides what to do.** In monitor mode it logs the agent and passes the request through. In route mode it also returns a 403 on paths agents may never use, such as password and payment changes. Once the front door is available, route mode will also redirect agents on login pages there.
-4. **Forwards everything else** to your site, with `x-descope-agent` and `x-descope-agent-origin` headers so your app knows which requests came from agents.
-5. **Adjusts the response.** A 401 from an API path gains a `WWW-Authenticate: Bearer resource_metadata="..."` header, which is how MCP and OAuth clients find Descope on their own. Login pages gain a hidden note for agents and a small "Signing in with an AI assistant?" link to `/agents`.
+1. Serves `/.well-known/oauth-protected-resource` and `/agents` itself. Both point to your Descope project, and neither request reaches your site.
+2. Works out whether the caller is an agent. A valid Web Bot Auth signature, checked against the agent platform's published keys, makes it `verified`. Without a signature, the front door's session cookie, Cloudflare's verified-bot signal, or an agent-like user agent can still flag it, usually as `unverified`.
+3. In monitor mode, logs the agent and lets the request through. In route mode, it also returns a 403 for pages agents shouldn't use, such as password and payment changes, and sends agents on your login page to the front door.
+4. Forwards everything else to your site with `x-descope-agent` and `x-descope-agent-origin` headers, so your app can tell which requests came from agents.
+5. Changes some responses on the way back. API 401s get a `WWW-Authenticate: Bearer resource_metadata="..."` header, which is how MCP and OAuth clients find Descope. Login pages get a hidden note for agents and, once a front door is set, a small "Signing in with an AI assistant?" link to `/agents`.
 
 Descope handles the rest. The user signs in through your existing login and approves the request on a consent screen. Descope then issues a token with the user as the subject, the agent as the actor, and any limits the user approved. Your backend validates that token like any other JWT and enforces its claims. The integration identifies agents and shows them the way in. It doesn't authorize them.
 
@@ -73,42 +85,40 @@ sequenceDiagram
 
 ### Agents that can't open a browser
 
-Computer use agents in a cloud VM and agents people reach over text message can't send the user to a sign-in page. They go through the front door, which asks the user for approval on their own device with CIBA.
+Computer use agents in a cloud VM and agents people reach over text message can't send the user to a sign-in page. They go through the front door. By default it uses the device flow: the agent gets a link from Descope, gives it to the user, and the user approves on their own device. Agents that can't pass on a link can send the user's email instead, and Descope emails the user an approval request (CIBA).
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant A as Agent
   participant E as Edge integration
-  participant F as Descope front door
+  participant F as Front door
   participant D as Descope
   actor U as User
-  participant S as Your API
+  participant S as Your site
   A->>E: GET /login, signed with Web Bot Auth
   E->>E: Verify the signature against the platform's key directory
   E-->>A: 302 to the front door with return_to and agent_hint
-  A->>F: Opens the front door page
-  F-->>A: Page with an email field and plain-language instructions
-  A->>F: Submits the user's email
+  A->>F: Get a sign-in link
   F->>F: Pick the client: trusted platform, unknown platform, or unverified
-  F->>D: CIBA request signed with private_key_jwt, with the user's email and a binding message
-  D-->>F: auth_req_id
-  F-->>A: Waiting page: the user needs to approve from their email
-  D->>U: Approval email
-  U->>D: Signs in with your existing login and approves on the consent screen
+  F->>D: Device authorization request
+  D-->>F: device_code, plus a link and user code
+  F-->>A: Waiting page with the link
+  A->>U: "Open this link to approve"
+  U->>D: Signs in and approves on the consent screen
   loop Until the user approves or declines
     A->>F: Waiting page checks the status
-    F->>D: Token request with auth_req_id
+    F->>D: Token request with device_code
   end
-  D-->>F: Token with the user as sub, the agent as act, and approved limits
-  F-->>A: Token
-  A->>E: API call with Bearer token
+  D-->>F: Token with the user as sub, the agent as act, and read-only scope
+  F-->>A: Session cookie (browsers) or token (API agents)
+  A->>E: Requests to your site, now signed in as the user
   E->>S: Forward
-  S->>S: Validate the token, enforce its limits, and log the agent
+  S->>S: Validate the token and enforce its scopes
   S-->>A: Response
 ```
 
-The front door serves the page with the email field, so the edge integration never handles the user's email. Browser agents fill it in like any form. Agents that go to `/agents` instead of the login page get pointed to the same page, starting at step 4.
+The edge integration never handles the user's email or the code; the front door does. Agents that go to `/agents` instead of the login page get pointed to the same front door page.
 
 What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead. The front door sets the access token as a cookie on your domain, so the agent's browser sends it on every request without adding a header. Your site has to accept the token from that cookie. See [Browser agents get a session cookie](front-door/README.md#browser-agents-get-a-session-cookie).
 
@@ -150,17 +160,3 @@ Either way, check the signature, issuer, audience, and expiry, and accept Descop
   - **For APIs,** return `403` with `WWW-Authenticate: Bearer error="insufficient_scope", scope="orders:write"` (RFC 6750). OAuth and MCP clients read that and ask the customer for the extra scope.
 
 The `x-descope-agent` headers are useful for logging and for treating unauthenticated agent traffic differently. Base authorization decisions on the token, not the headers.
-
-## Platforms
-
-| Platform | Folder | Status |
-| --- | --- | --- |
-| Cloudflare Workers | [`cloudflare/`](cloudflare/) | Available |
-| Vercel | — | Planned |
-| Amazon CloudFront | — | Planned |
-
-Each platform folder is a self-contained project with its own dependencies, tests, and README. Code is not shared between platforms yet; a common core may be extracted once a second platform exists.
-
-## Front door
-
-[`front-door/`](front-door/) is a reference implementation of the agent front door: a Cloudflare Worker that gets the user's approval with real Descope CIBA requests, signs browser agents in with a session cookie, connects agents read-only, and runs step-up approvals when the store needs one for a purchase. A hosted front door is coming soon from Descope.

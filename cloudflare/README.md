@@ -24,7 +24,9 @@ flowchart TD
 - **Finds agents.** It checks Web Bot Auth signatures against each agent platform's published keys. It also recognizes the front door's session cookie, Cloudflare's verified bots, and agent-like user agents.
 - **Shows agents the way in.** It serves an `/agents` page and the OAuth protected resource metadata (RFC 9728). It also adds a note for agents to your login pages and a `resource_metadata` challenge to your API's 401s, so MCP and OAuth clients find Descope on their own.
 - **Routes agents.** In route mode, it sends agents on your login page to the [front door](../front-door/), where the customer approves them through Descope. It blocks agents from pages such as password and payment changes.
-- **Tells your site.** Each request it forwards gets an `x-descope-agent` header (`verified` or `unverified`) and, for verified agents, `x-descope-agent-origin`.
+- **Tells your site.** Each request it forwards gets an `x-descope-agent` header (`verified` or `unverified`) and, for verified agents, `x-descope-agent-origin`. Trust these headers only if your site accepts traffic exclusively through Cloudflare; the Worker strips any copies a client sends.
+
+It identifies agents but doesn't authorize them: what an agent may do comes from the Descope token, and your site enforces it.
 
 It starts in **monitor mode**, which only logs agents, so you can see your real agent traffic before it changes anything. It fails open: if it's misconfigured or something breaks, requests pass through to your site unchanged.
 
@@ -129,11 +131,3 @@ curl http://localhost:8787/.well-known/oauth-protected-resource
 curl -I -A "HeadlessChrome" http://localhost:8787/login   # 302 to the front door
 curl -I http://localhost:8787/api/orders                  # 401 with WWW-Authenticate: Bearer resource_metadata=...
 ```
-
-## Good to know
-
-- **It identifies agents. It doesn't authorize them.** What an agent may do comes from the Descope token, and your site enforces it.
-- **User agents can be faked,** so agents found that way are marked `unverified`.
-- **Trust the `x-descope-agent` headers only if your site accepts traffic exclusively through Cloudflare.** The Worker strips any copies a client sends.
-- **There's no replay cache for Web Bot Auth signatures yet,** and key directory signatures aren't verified. That's fine for routing, but add both before relying on verification for anything more sensitive.
-- **Inline styles.** The login-page note uses them, so a strict Content Security Policy can make it visible. Allow it in your policy, or set `INJECT_LOGIN_HINT = "false"`.

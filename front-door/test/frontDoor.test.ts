@@ -8,6 +8,7 @@ const DISCOVERY = "https://api.descope.test/v1/apps/P123/.well-known/openid-conf
 const ISSUER = "https://api.descope.test/P123";
 const BC = "https://api.descope.test/oauth2/v1/apps/bc-authorize";
 const TOKEN = "https://api.descope.test/oauth2/v1/apps/token";
+const DEVICE = "https://api.descope.test/oauth2/v1/apps/device/authorize";
 const HINT_SECRET = "hint-secret";
 
 const env: Env = {
@@ -26,19 +27,31 @@ const env: Env = {
 /** A fake Descope that records CIBA calls and answers token polls from a queue. */
 let calls: { url: string; params: URLSearchParams }[];
 let tokenAnswers: { status: number; body: unknown }[];
+/** Whether the fake Descope advertises the device flow. Off by default, like the real inbound app today. */
+let deviceFlow = false;
 const realFetch = globalThis.fetch;
 beforeEach(() => {
   calls = [];
   tokenAnswers = [];
+  deviceFlow = false;
   resetDiscoveryCache();
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === DISCOVERY) {
-      return Response.json({ issuer: ISSUER, token_endpoint: TOKEN, backchannel_authentication_endpoint: BC });
+      return Response.json({
+        issuer: ISSUER, token_endpoint: TOKEN, backchannel_authentication_endpoint: BC,
+        ...(deviceFlow ? { device_authorization_endpoint: DEVICE } : {}),
+      });
     }
     const params = new URLSearchParams(String(init?.body ?? ""));
     calls.push({ url, params });
     if (url === BC) return Response.json({ auth_req_id: "req-1", expires_in: 300, interval: 2 });
+    if (url === DEVICE) {
+      return Response.json({
+        device_code: "dc-1", user_code: "WDJB-MJHT", verification_uri: "https://auth.test/device",
+        verification_uri_complete: "https://auth.test/device?user_code=WDJB-MJHT", expires_in: 600, interval: 5,
+      });
+    }
     if (url === TOKEN) {
       const answer = tokenAnswers.shift() ?? { status: 400, body: { error: "authorization_pending" } };
       return Response.json(answer.body, { status: answer.status });
@@ -429,4 +442,92 @@ test("approving a step-up replaces the access cookie but keeps the read-only ref
   const status = await call(new Request(`https://front-door.test/status?handle=${encodeURIComponent(handle)}`, { headers: { cookie: bind } }), { STEP_UP_SECRET });
   assert.match(cookie(status, "DS")!, /^DS=write-token;/);
   assert.equal(cookie(status, "DSR"), undefined);
+});
+
+
+const postJson = (body: Record<string, string>, overrides: Partial<Env> = {}) =>
+  call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }), overrides);
+
+test("with no email, /connect starts a device flow and returns the link and code for the user", async () => {
+  deviceFlow = true;
+  const response = await postJson({});
+  const data = (await response.json()) as Record<string, string>;
+  assert.equal(data.flow, "device");
+  assert.equal(data.user_code, "WDJB-MJHT");
+  assert.equal(data.verification_uri, "https://auth.test/device");
+  assert.equal(data.verification_uri_complete, "https://auth.test/device?user_code=WDJB-MJHT");
+  assert.equal(data.message, "Ask the user to open https://auth.test/device?user_code=WDJB-MJHT and approve. It should show the code WDJB-MJHT.");
+  assert.ok(data.handle);
+
+  const device = calls.find((c) => c.url === DEVICE)!;
+  assert.equal(device.params.get("client_id"), "client-unverified");
+  assert.equal(device.params.get("client_secret"), "s1");
+  assert.equal(device.params.get("scope"), "openid orders:read");
+  assert.equal(device.params.get("login_hint"), null);
+  assert.equal(calls.filter((c) => c.url === BC).length, 0);
+});
+
+test("flow=device with an email passes it as login_hint, without sending any email", async () => {
+  deviceFlow = true;
+  await postJson({ flow: "device", email: "pat@example.com" });
+  assert.equal(calls.find((c) => c.url === DEVICE)!.params.get("login_hint"), "pat@example.com");
+  assert.equal(calls.filter((c) => c.url === BC).length, 0);
+});
+
+test("polling a device flow uses the device_code grant and signs the browser in on approval", async () => {
+  deviceFlow = true;
+  const { handle } = (await (await postJson({})).json()) as { handle: string };
+  tokenAnswers.push({ status: 200, body: { access_token: "at", token_type: "Bearer", expires_in: 600, refresh_token: "rt" } });
+  const status = await call(new Request(`https://front-door.test/status?handle=${encodeURIComponent(handle)}`));
+  assert.equal(((await status.json()) as { status: string }).status, "approved");
+  assert.match(status.headers.getSetCookie().find((c) => c.startsWith("DS="))!, /^DS=at;/);
+  const poll = calls.filter((c) => c.url === TOKEN).at(-1)!;
+  assert.equal(poll.params.get("grant_type"), "urn:ietf:params:oauth:grant-type:device_code");
+  assert.equal(poll.params.get("device_code"), "dc-1");
+});
+
+test("a browser asking for a code gets a page with the link and code to give the user", async () => {
+  deviceFlow = true;
+  const response = await call(new Request("https://front-door.test/connect", { method: "POST", body: new URLSearchParams({ flow: "device" }) }));
+  const html = await response.text();
+  assert.match(html, /href="https:\/\/auth\.test\/device\?user_code=WDJB-MJHT"/);
+  assert.doesNotMatch(html, /enter this code/i, "the code rides in the link, so the user doesn't type it");
+  assert.match(html, /WDJB-MJHT/, "the code is still shown, so the user can check it matches");
+  assert.ok(response.headers.getSetCookie().some((c) => c.startsWith("fd_bind=")));
+});
+
+test("without a device endpoint, connecting needs an email (the CIBA fallback)", async () => {
+  const json = await postJson({});
+  assert.equal(json.status, 400);
+  assert.match(((await json.json()) as { message: string }).message, /email/);
+  assert.equal(calls.filter((c) => c.url === DEVICE).length, 0);
+});
+
+test("CIBA_FALLBACK=false turns off approval emails for connecting", async () => {
+  deviceFlow = true;
+  const response = await postJson({ email: "pat@example.com" }, { CIBA_FALLBACK: "false" });
+  assert.equal(response.status, 400);
+  assert.equal(calls.filter((c) => c.url === BC).length, 0);
+});
+
+test("the connect page leads with a sign-in link, with the email form as the fallback", async () => {
+  deviceFlow = true;
+  const both = await (await call(new Request("https://front-door.test/"))).text();
+  assert.match(both, /Get a sign-in link/);
+  assert.match(both, /name="email"/);
+  assert.ok(both.indexOf("Get a sign-in link") < both.indexOf('name="email"'));
+
+  deviceFlow = false;
+  resetDiscoveryCache();
+  const cibaOnly = await (await call(new Request("https://front-door.test/"))).text();
+  assert.doesNotMatch(cibaOnly, /Get a sign-in link/);
+  assert.match(cibaOnly, /name="email"/);
+
+  deviceFlow = true;
+  resetDiscoveryCache();
+  const deviceOnly = await (await call(new Request("https://front-door.test/"), { CIBA_FALLBACK: "false" })).text();
+  assert.match(deviceOnly, /Get a sign-in link/);
+  assert.doesNotMatch(deviceOnly, /name="email"/);
 });

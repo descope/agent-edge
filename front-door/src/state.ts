@@ -3,7 +3,10 @@ import type { Tier } from "./config";
 
 /** Everything the front door needs to finish a request, sealed into the handle the agent holds. */
 export interface PendingRequest {
+  /** The CIBA auth_req_id, or the device flow's device_code. */
   authReqId: string;
+  /** How the request is approved. Missing means CIBA. */
+  flow?: "ciba" | "device";
   clientId: string;
   tier: Tier;
   signatureAgent?: string;

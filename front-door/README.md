@@ -1,16 +1,21 @@
 # Agent front door
 
-A reference implementation of the agent front door: where agents that can't open a browser go to get a user's approval. It runs as a Cloudflare Worker and makes **real** Descope CIBA requests. The user gets a real approval email, signs in with their normal login, and sees the real consent screen. The agent gets a real Descope token.
+An example implementation of the agent front door, deployed to protect [Northbound](https://github.com/descope-sample-apps/northbound-sample-app). It shows roughly how a front door serves Descope to an agent. It's where agents that can't open a browser go to get the customer's approval, with the device flow or CIBA, before getting a Descope token.
 
-A hosted front door is coming soon from Descope.
+> [!NOTE]
+> A hosted front door is coming soon from Descope.
 
 ## What it does
 
-1. **Shows agents an email form.** `GET /` serves a page with a hidden note for agents and a field for the user's email. Agents without a browser can `POST /connect` with JSON instead.
+1. **Offers two ways to connect.** `GET /` serves a page with a hidden note for agents. The main option is **Get a sign-in link** (the device flow): the agent gets a link to give the user, and nobody is sent anything they didn't ask for. Below it, for agents that can't pass on a link, is an email field (CIBA), which sends the user an approval email and is rate limited per address. Agents without a browser can `POST /connect` with JSON instead.
 2. **Works out who the agent is.** It verifies a Web Bot Auth signature on the request itself, or trusts the edge integration's signed `agent_hint`, or treats the agent as unverified.
 3. **Picks a client for that tier.** Trusted platforms get their own inbound app. Verified agents from other platforms share one client, and unverified agents share another.
-4. **Starts a real CIBA request** against your Descope inbound app. The approval message says who is asking, what they want, and a short code that the agent also shows the user, so the user can check that the request is theirs. By default an agent connects read-only (`orders:read`), and the message says so: "An unverified agent wants to view your orders at Northbound. Code K7Q2XM".
+4. **Starts the approval with Descope,** read-only (`orders:read`) by default.
+   - **Device flow:** Descope returns a link with the code already in it. The user opens it on their own device, signs in, and approves. The consent screen shows the inbound app's name, so name each tier's app for the user, for example "Unverified agent".
+   - **CIBA:** Descope emails the user. The approval message says who is asking and what they want, with a short code the agent also shows: "An unverified agent wants to view your orders at Northbound. Code K7Q2XM".
 5. **Waits for approval.** The waiting page, or an agent calling `GET /status`, polls Descope until the user approves or declines, then returns the access token. The refresh token stays with the front door.
+
+When an agent sends the user's email instead of asking for a link, the front door uses CIBA: Descope emails the user directly, and the agent shows them the matching code. Set `CIBA_FALLBACK = "false"` to turn this path off, so agents can only connect with a code.
 
 Each request also gets an agent ID (`agt_...`) that's logged with every event, so requests on the shared clients can be told apart.
 
@@ -18,14 +23,14 @@ Each request also gets an agent ID (`agt_...`) that's logged with every event, s
 
 A computer use agent uses your site through a browser, like a person does. It shouldn't have to add an `Authorization: Bearer` header to every request, and usually can't.
 
-Descope can't set this cookie itself. With CIBA, the token goes from Descope's token endpoint to the front door, server to server, and never passes through the agent's browser. The one browser response the front door controls is the waiting page's `/status` call in the agent's own browser, so the front door sets the cookies there:
+Descope can't set this cookie itself. With the device flow and CIBA, the token goes from Descope's token endpoint to the front door, server to server, and never passes through the agent's browser. The one browser response the front door controls is the waiting page's `/status` call in the agent's own browser, so the front door sets the cookies there:
 
 | Cookie | Holds | Scope |
 | --- | --- | --- |
 | `DS` | The access token | `Domain=COOKIE_DOMAIN; Path=/`, so your site receives it on every request. Expires with the token. |
 | `DSR` | The refresh token, sealed with `STATE_SECRET` | The front door's `/refresh` only. It never reaches your site, and the browser can't read it. |
 
-Both are `HttpOnly` and `SameSite=Lax`, and `Secure` over https. The names default to `DS` and `DSR`, the cookie names Descope's SDKs use, and you can change them with `ACCESS_TOKEN_COOKIE` and `REFRESH_TOKEN_COOKIE`.
+Both are `HttpOnly` and `SameSite=Lax`, and `Secure` over https.
 
 For this to work:
 
@@ -33,7 +38,7 @@ For this to work:
 - **Your site has to accept the token from the cookie.** Validate it the same way as a bearer token: with a Descope backend SDK reading the `DS` cookie, or at a gateway that reads it from the cookie.
 - **Refreshing goes through the front door.** Refreshing needs the front door's client credentials, so the browser can't do it alone. When the access token expires, send the browser to `https://agents.example.com/refresh?return_to=<page>`. The front door uses the `DSR` cookie, sets a new `DS`, and redirects back. `POST /refresh` does the same and returns JSON. If the refresh fails, both cookies are cleared and the agent has to connect again.
 
-Agents that call your API directly still get the access token in the `/status` JSON and send it as a bearer token. Turn cookies off with `SESSION_COOKIES = "false"`.
+Agents that call your API directly still get the access token in the `/status` JSON and send it as a bearer token.
 
 ```mermaid
 sequenceDiagram
@@ -43,26 +48,28 @@ sequenceDiagram
   participant D as Descope
   actor U as User
   A->>F: GET / (or POST /connect with JSON)
-  F-->>A: Email form
-  A->>F: POST /connect with the user's email
+  F-->>A: Connect page
+  A->>F: Get a sign-in link
   F->>F: Verify the agent and pick a client
-  F->>D: CIBA request with login_hint and a binding message with the code
-  D-->>F: auth_req_id
-  F-->>A: Waiting page with the code, or JSON with status_url
-  D->>U: Approval email showing the code
-  U->>D: Signs in and approves
+  F->>D: Device authorization request
+  D-->>F: device_code, plus a link and user code
+  F-->>A: Waiting page with the link, or JSON with status_url
+  A->>U: "Open this link to approve"
+  U->>D: Opens the link, signs in, and approves
   loop Until approved, declined, or expired
     A->>F: GET /status
-    F->>D: Token request with auth_req_id
+    F->>D: Token request with device_code
   end
-  F-->>A: Access token
+  F-->>A: Access token (and the session cookie, for browsers)
 ```
 
 ## Set up Descope
 
-1. **Create an inbound app** for unverified agents, and turn on **CIBA** in its settings. Pick an email connector and template for the approval email, and the flow that runs when the user opens the approval link. That flow signs the user in and shows the consent screen. See [What the user sees when approving](../../README.md#what-the-user-sees-when-approving).
+1. **Create an inbound app** for unverified agents, and name it for what the user should see, such as "Unverified agent".
+   - Turn on the **device authorization flow**. The front door offers sign-in links only when the app's discovery document lists a `device_authorization_endpoint`.
+   - Turn on **CIBA** for step-up and the email fallback. Pick an email connector and template, and the flow that runs when the user opens the approval link. That flow signs the user in and shows the consent screen. See [What the user sees when approving](../README.md#what-the-user-sees-when-approving).
 2. **Optionally create more inbound apps:** one shared app for verified agents from unknown platforms, and one for each platform you trust.
-3. **Copy the inbound app's Discovery URL** from the Descope Console. The front door reads the CIBA and token endpoints from it.
+3. **Copy the inbound app's Discovery URL** from the Descope Console. The front door reads the device, CIBA, and token endpoints from it.
 4. **Choose how the front door authenticates:**
    - **`private_key_jwt` (preferred).** It's available on request, so ask Descope to turn it on for your project. Run `npm run generate-key` and save the output as `PRIVATE_KEY_JWK`. Then register the front door's public key with each inbound app, either by pointing the app at `https://<front door>/jwks.json` or by pasting the key.
    - **Client secrets.** Set `CLIENT_SECRETS` to a JSON map from each client ID to its secret.
@@ -100,7 +107,7 @@ curl "http://localhost:8788/status?handle=<handle from the response>"
 | Endpoint | What it does |
 | --- | --- |
 | `GET /` | The email form. Keeps `return_to` and `agent_hint` from the edge integration's redirect. |
-| `POST /connect` | Starts a CIBA request. Takes a form post or JSON `{ "email": "...", "agent_hint": "..." }`. JSON callers get `{ handle, code, agent_id, tier, status_url, interval, expires_in }`. Returns `429` when rate limited. |
+| `POST /connect` | Starts a connection. With no email, or with `flow=device`, starts the device flow: JSON callers get `{ flow, handle, user_code, verification_uri, verification_uri_complete, agent_id, tier, status_url, interval, expires_in }`, and an email, if given, is passed as `login_hint`. With an email, starts CIBA: JSON callers get `code` instead of the user code and link. Takes a form post or JSON. Returns `429` when rate limited. |
 | `GET /status?handle=...` | Polls Descope. Returns `pending` with the `interval` to wait, `approved` with the access token, `denied`, `expired`, or `error`. If Descope asks it to slow down, `pending` also includes a new `handle` with a longer interval; use it for later polls. Returns `403` if called from a different client than the one that started the request. |
 | `GET /jwks.json` | The front door's public key, for registering `private_key_jwt` with your inbound apps. |
 | `GET` or `POST /refresh` | Uses the `DSR` cookie to get a new access token and set a new `DS` cookie. `GET` with `return_to` redirects back; `POST` returns JSON. |
@@ -150,24 +157,6 @@ The approval message shows the exact amount, but the token only carries the scop
 
 ## Protections built in
 
-- **Rate limits on `/connect`:** 10 requests a minute per IP and 3 per email address, checked before anything reaches Descope. Tune them in the `[[ratelimits]]` blocks in `wrangler.toml`. Cloudflare's rate limiting supports 10- and 60-second windows, so add a WAF rate limiting rule if you want longer ones.
+- **Rate limits on `/connect`:** 10 requests a minute per IP and 3 per email address, checked before anything reaches Descope.
 - **Handles are tied to the client that started the request.** A browser request's handle only works with the `fd_bind` cookie set on its waiting page. A JSON request's handle only works from the same IP address. A handle that leaks into a log or a shared link is no use to anyone else.
 - **Client credentials never leave the front door.** It signs `private_key_jwt` assertions or holds the client secrets, makes the token requests itself, and keeps the refresh token in a sealed cookie.
-
-## Before production
-
-These are still open. Close the ones that matter for your site before putting the front door in front of real users:
-
-- **Replay protection for Web Bot Auth.** There's no nonce cache, so a captured signed request could be replayed within its validity window. Key directory signatures aren't verified either.
-- **IP binding for JSON clients.** An agent whose outgoing IP changes between `/connect` and `/status` (some cloud platforms rotate addresses) gets a `403` and has to start again. Bind to the agent's Web Bot Auth key instead if that's a problem for you.
-- **A step-up approves a scope, not an amount.** Keep the `orders:write` token short-lived until RAR can carry the exact order.
-- **The agent ID isn't in the token** unless Descope is set up to add it as a custom claim. It's always in the front door's logs.
-- **Agents calling your API directly can't refresh.** The refresh token only lives in the browser cookie, so they get a new token by connecting again.
-- **No sign-out or revocation endpoint** yet for clearing the cookies and revoking the tokens.
-- **Longer rate limit windows and bot protection,** such as a WAF rule or Turnstile on the email form, if the per-minute limits aren't enough.
-
-## Open questions about Descope
-
-- **The `private_key_jwt` audience.** The assertion lists both the issuer and the endpoint as its audience. Confirm which one Descope expects.
-- **Getting the agent ID into the token,** most likely through a custom claim set in the consent flow.
-- **The approval message.** Confirm that Descope shows the `binding_message` to the user in the approval email or on the consent screen.

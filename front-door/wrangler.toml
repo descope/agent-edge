@@ -1,5 +1,5 @@
 # Reference implementation of the agent front door: a Cloudflare Worker that gets the user's
-# approval with Descope CIBA. Read "Before production" in the README before using it on a real site.
+# approval with Descope. It's for trying the flow, not for production.
 # Run it locally with `npm run dev`, or deploy it with `npm run deploy`.
 
 name = "agent-edge-front-door"
@@ -48,6 +48,11 @@ UNVERIFIED_SCOPES = "openid orders:read"
 
 # The scope a step-up asks for when the store sends an agent here to approve one purchase.
 STEP_UP_SCOPE = "openid orders:write"
+
+# Agents connect with the device flow when the inbound app offers it: they get a link
+# to give the user. CIBA, which emails the user, is the fallback for agents that can't pass on a
+# link. Set this to "false" to turn the email fallback off. Step-up always uses CIBA.
+CIBA_FALLBACK = "true"
 
 # What each tier is asking for when it first connects, shown to the user in the approval
 # message ({site} is SITE_NAME). Keep it in step with the scopes above.

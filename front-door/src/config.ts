@@ -18,6 +18,7 @@ export interface Env {
   UNVERIFIED_SCOPES?: string;
   TRUSTED_ACCESS?: string;
   STEP_UP_SECRET?: string;
+  CIBA_FALLBACK?: string;
   STEP_UP_SCOPE?: string;
   VERIFIED_ACCESS?: string;
   UNVERIFIED_ACCESS?: string;
@@ -45,6 +46,8 @@ export interface Config {
   stepUpSecret?: string;
   /** The scope a step-up asks for. */
   stepUpScope: string;
+  /** Whether agents can connect by having an approval email sent (CIBA). Device codes are the main path. */
+  cibaFallback: boolean;
   stateSecret: string;
   hintSigningSecret?: string;
   privateKey?: JsonWebKey & { kid?: string };
@@ -91,6 +94,7 @@ export function loadConfig(env: Env): Config {
     stateSecret: required("STATE_SECRET", env.STATE_SECRET),
     stepUpSecret: env.STEP_UP_SECRET || undefined,
     stepUpScope: env.STEP_UP_SCOPE || "openid orders:write",
+    cibaFallback: env.CIBA_FALLBACK !== "false",
     hintSigningSecret: env.HINT_SIGNING_SECRET || undefined,
     privateKey: json("PRIVATE_KEY_JWK", env.PRIVATE_KEY_JWK, undefined),
     clientSecrets: json("CLIENT_SECRETS", env.CLIENT_SECRETS, {}),

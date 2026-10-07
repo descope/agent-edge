@@ -1,5 +1,5 @@
 import { loadConfig, type Config, type Env, type RateLimiter, type Tier } from "./config";
-import { pollToken, refreshTokens, startCiba, type TokenSet } from "./descope";
+import { deviceFlowAvailable, pollToken, refreshTokens, startCiba, startDevice, type TokenSet } from "./descope";
 import { base64Url, randomCode, utf8 } from "./encoding";
 import { verifyHint, verifySigned } from "./hint";
 import { connectPage, waitingPage } from "./pages";
@@ -25,7 +25,7 @@ export default {
         return connectPage(config.siteName, {
           returnTo: safeReturnTo(url.searchParams.get("return_to")),
           agentHint: url.searchParams.get("agent_hint") ?? undefined,
-        });
+        }, undefined, await connectOptions(config));
       }
       if (request.method === "POST" && url.pathname === "/connect") return await connect(request, env, config);
       if (request.method === "GET" && url.pathname === "/status") return await status(request, url, config);
@@ -42,6 +42,16 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+/** Which ways of connecting this front door offers: device codes when Descope supports them, approval emails unless turned off. */
+async function connectOptions(config: Config): Promise<{ device: boolean; ciba: boolean }> {
+  return { device: await deviceFlowAvailable(config), ciba: config.cibaFallback };
+}
+
+/**
+ * Starts a connection. The device flow is the main path: the agent gets a link to
+ * give the user, and nobody is sent anything they didn't ask for. Sending an email starts
+ * CIBA instead, for agents that can't pass on a link; it's rate limited per address.
+ */
 async function connect(request: Request, env: Env, config: Config): Promise<Response> {
   const wantsJson = (request.headers.get("content-type") ?? "").includes("application/json");
   const input: Record<string, unknown> = wantsJson
@@ -50,22 +60,30 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
   const email = String(input.email ?? "").trim();
   const returnTo = safeReturnTo(typeof input.return_to === "string" ? input.return_to : undefined);
   const agentHint = typeof input.agent_hint === "string" && input.agent_hint ? input.agent_hint : undefined;
+  const options = await connectOptions(config);
+  const flow = input.flow === "device" || !email ? "device" : "ciba";
 
-  if (!EMAIL.test(email)) {
-    return wantsJson
-      ? json({ error: "invalid_request", message: "email is required" }, 400)
-      : connectPage(config.siteName, { returnTo, agentHint }, "Enter a valid email address.");
+  const refuse = (message: string, status = 400) => wantsJson
+    ? json({ error: "invalid_request", message }, status)
+    : connectPage(config.siteName, { returnTo, agentHint }, message, options);
+  if (flow === "device" && !options.device) {
+    return refuse(options.ciba
+      ? "Sign-in codes aren't available here. Enter the user's email address to send them an approval email."
+      : "This front door can't connect agents right now.");
   }
+  if (flow === "ciba" && !options.ciba) return refuse("Approval emails are turned off. Get a sign-in link instead.");
+  if (flow === "ciba" && !EMAIL.test(email)) return refuse("Enter a valid email address.");
 
   // Checked before anything reaches Descope, so the front door can't be used to flood
   // someone's inbox with approval requests.
   const ip = request.headers.get("cf-connecting-ip") ?? undefined;
-  if (await limited(env.CONNECT_IP_LIMITER, ip) || await limited(env.CONNECT_EMAIL_LIMITER, email.toLowerCase())) {
+  const emailLimited = flow === "ciba" && await limited(env.CONNECT_EMAIL_LIMITER, email.toLowerCase());
+  if (await limited(env.CONNECT_IP_LIMITER, ip) || emailLimited) {
     console.log(JSON.stringify({ event: "connect_rate_limited" }));
     const message = "Too many approval requests. Wait a minute and try again.";
     const response = wantsJson
       ? json({ error: "rate_limited", message }, 429)
-      : connectPage(config.siteName, { returnTo, agentHint }, message);
+      : connectPage(config.siteName, { returnTo, agentHint }, message, options);
     return withHeaders(response, { "retry-after": "60" }, 429);
   }
 
@@ -73,32 +91,46 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
   const clientId = agent.tier === "trusted" ? config.clients.trusted[agent.signatureAgent!] : config.clients[agent.tier];
   // Per-request agent ID, so requests on the shared clients can still be told apart and revoked.
   const agentId = `agt_${randomCode(16, "abcdefghijkmnpqrstuvwxyz23456789")}`;
-  // Shown to the agent and in the approval message, so the user can check they match.
-  const code = randomCode(6);
+  const scope = config.scopes[agent.tier];
 
-  const ciba = await startCiba(config, {
-    clientId,
-    email,
-    scope: config.scopes[agent.tier],
-    bindingMessage: `${agentLabel(agent)} wants to ${config.access[agent.tier].replaceAll("{site}", config.siteName)}. Code ${code}`,
-  });
+  let started: { requestId: string; code: string; expiresIn: number; interval: number; device?: { verificationUri: string; verificationUriComplete?: string } };
+  if (flow === "device") {
+    // The inbound app's name is what the consent screen shows, so name each tier's app for it.
+    const device = await startDevice(config, { clientId, scope, loginHint: EMAIL.test(email) ? email : undefined });
+    started = {
+      requestId: device.deviceCode, code: device.userCode, expiresIn: device.expiresIn, interval: device.interval,
+      device: { verificationUri: device.verificationUri, verificationUriComplete: device.verificationUriComplete },
+    };
+  } else {
+    // Shown to the agent and in the approval message, so the user can check they match.
+    const code = randomCode(6);
+    const ciba = await startCiba(config, {
+      clientId,
+      email,
+      scope,
+      bindingMessage: `${agentLabel(agent)} wants to ${config.access[agent.tier].replaceAll("{site}", config.siteName)}. Code ${code}`,
+    });
+    started = { requestId: ciba.authReqId, code, expiresIn: ciba.expiresIn, interval: ciba.interval };
+  }
 
   const pending: PendingRequest = {
-    authReqId: ciba.authReqId,
+    authReqId: started.requestId,
+    flow,
     clientId,
     tier: agent.tier,
     signatureAgent: agent.signatureAgent,
     agentId,
-    code,
+    code: started.code,
     returnTo,
-    expiresAt: Date.now() + ciba.expiresIn * 1000,
-    interval: ciba.interval,
+    expiresAt: Date.now() + started.expiresIn * 1000,
+    interval: started.interval,
   };
   const bindToken = wantsJson ? undefined : base64Url(crypto.getRandomValues(new Uint8Array(32)));
   pending.binding = bindToken ? { cookieHash: await sha256(bindToken) } : ip ? { ip } : undefined;
   const handle = await seal(pending, config.stateSecret);
   console.log(JSON.stringify({
     event: "connect_started",
+    flow,
     agent_id: agentId,
     tier: agent.tier,
     client_id: clientId,
@@ -107,21 +139,35 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
   }));
 
   if (!wantsJson) {
-    const page = waitingPage(config.siteName, { handle, code, interval: ciba.interval, returnTo, cookies: Boolean(config.cookies) });
+    const page = waitingPage(config.siteName, {
+      handle, code: started.code, interval: started.interval, returnTo, cookies: Boolean(config.cookies), device: started.device,
+    });
     const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
     page.headers.append("set-cookie",
-      `${BIND_COOKIE}=${bindToken}; Path=/status; Max-Age=${ciba.expiresIn}; HttpOnly${secure}; SameSite=Strict`);
+      `${BIND_COOKIE}=${bindToken}; Path=/status; Max-Age=${started.expiresIn}; HttpOnly${secure}; SameSite=Strict`);
     return page;
   }
+  const link = started.device?.verificationUriComplete ?? started.device?.verificationUri;
   return json({
+    flow,
     handle,
-    code,
+    ...(started.device
+      ? {
+        user_code: started.code,
+        verification_uri: started.device.verificationUri,
+        verification_uri_complete: started.device.verificationUriComplete,
+      }
+      : { code: started.code }),
     agent_id: agentId,
     tier: agent.tier,
     status_url: `${new URL(request.url).origin}/status?handle=${encodeURIComponent(handle)}`,
-    interval: ciba.interval,
-    expires_in: ciba.expiresIn,
-    message: `Ask the user to approve the request in their email if it shows the code ${code}.`,
+    interval: started.interval,
+    expires_in: started.expiresIn,
+    message: started.device?.verificationUriComplete
+      ? `Ask the user to open ${link} and approve. It should show the code ${started.code}.`
+      : started.device
+      ? `Ask the user to open ${link}, enter the code ${started.code}, and approve.`
+      : `Ask the user to approve the request in their email if it shows the code ${started.code}.`,
   });
 }
 
@@ -133,7 +179,7 @@ async function status(request: Request, url: URL, config: Config): Promise<Respo
   }
   if (Date.now() > pending.expiresAt) return json({ status: "expired" });
 
-  const result = await pollToken(config, pending.clientId, pending.authReqId);
+  const result = await pollToken(config, pending.clientId, pending.authReqId, pending.flow ?? "ciba");
   if (result.status === "pending") {
     if (!result.slowDown) return json({ status: "pending", interval: pending.interval });
     // The interval lives in the handle, so hand back a new handle that carries the slower one.
