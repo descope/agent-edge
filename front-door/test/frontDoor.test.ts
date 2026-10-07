@@ -421,7 +421,7 @@ async function stepUpRequest(payload: Record<string, unknown>, secret = STEP_UP_
   return edgeHint(payload, secret);
 }
 
-test("step-up asks for orders:write with a message naming the order the store signed", async () => {
+test("step-up asks for orders:read and orders:write with a message naming the order the store signed", async () => {
   const approved = await approve({ STEP_UP_SECRET, TRUSTED_ACCESS: "view your orders at {site}" });
   const refreshCookie = cookie(approved, "DSR")!.split(";")[0];
   const request = await stepUpRequest({ email: "pat@example.com", amount: "$18.95", exp: now() + 300 });
@@ -437,7 +437,7 @@ test("step-up asks for orders:write with a message naming the order the store si
   const ciba = calls.filter((c) => c.url === BC).at(-1)!;
   assert.equal(ciba.params.get("client_id"), "client-unverified");
   assert.equal(ciba.params.get("login_hint"), "pat@example.com");
-  assert.equal(ciba.params.get("scope"), "openid orders:write");
+  assert.equal(ciba.params.get("scope"), "openid orders:read orders:write");
   assert.match(ciba.params.get("binding_message")!, /^An unverified agent wants to place a \$18\.95 order at Northbound\. Code [A-Z2-9]{6}$/);
   assert.match(html, /https:\/\/shop.test\/checkout/);
 });
