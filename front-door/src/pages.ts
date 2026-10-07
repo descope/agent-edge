@@ -29,11 +29,20 @@ ${body}
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 }
 
+export interface ConnectOptions {
+  device: boolean;
+  ciba: boolean;
+  /** What the agent is asking to do, such as "view your orders at Northbound". */
+  access?: string;
+  /** Whether purchases need their own approval (step-up is configured). */
+  stepUp?: boolean;
+}
+
 export function connectPage(
   site: string,
   fields: { returnTo?: string; agentHint?: string },
   error?: string,
-  options: { device: boolean; ciba: boolean } = { device: false, ciba: true },
+  options: ConnectOptions = { device: false, ciba: true },
 ): Response {
   const s = escapeHtml(site);
   const hidden = [
@@ -59,6 +68,12 @@ ${options.device ? "<p>Can't pass on a link? Send the person an approval email i
   return page(`Connect an AI assistant to ${site}`, `
 <h1>Connect an AI assistant to ${s}</h1>
 <p>Your assistant gets its own access to your ${s} account, without your password. You approve it on your own device.</p>
+${options.access ? `<h2 style="font-size:1rem;margin-bottom:0.25rem">What you're approving</h2>
+<ul style="margin-top:0">
+  <li>Your assistant can ${escapeHtml(options.access)}.</li>
+  ${options.stepUp ? "<li>It can't place an order unless you approve that order separately.</li>" : ""}
+  <li>It never gets your password, and you approve or decline on your own device.</li>
+</ul>` : ""}
 ${options.device ? "<p>Get a sign-in link for the person you're acting for. They open it and approve.</p>" : ""}
 ${error ? `<p role="alert"><strong>${escapeHtml(error)}</strong></p>` : ""}
 ${codeForm}
