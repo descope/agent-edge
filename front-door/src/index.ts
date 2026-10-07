@@ -29,6 +29,7 @@ export default {
       }
       if (request.method === "POST" && url.pathname === "/connect") return await connect(request, env, config);
       if (request.method === "GET" && url.pathname === "/status") return await status(request, url, config);
+      if (request.method === "GET" && url.pathname === "/wait") return await wait(request, url, config);
       if (request.method === "GET" && url.pathname === "/jwks.json") return jwks(config);
       if (request.method === "GET" && url.pathname === "/step-up") return await stepUp(request, url, config);
       if ((request.method === "GET" || request.method === "POST") && url.pathname === "/refresh") {
@@ -94,6 +95,7 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
   const scope = config.scopes[agent.tier];
 
   let started: { requestId: string; code: string; expiresIn: number; interval: number; device?: { verificationUri: string; verificationUriComplete?: string } };
+  try {
   if (flow === "device") {
     // The inbound app's name is what the consent screen shows, so name each tier's app for it.
     const device = await startDevice(config, { clientId, scope, loginHint: EMAIL.test(email) ? email : undefined });
@@ -112,6 +114,16 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
     });
     started = { requestId: ciba.authReqId, code, expiresIn: ciba.expiresIn, interval: ciba.interval };
   }
+  } catch (error) {
+    // Descope refused (for example, a scope it doesn't know). Log the reason; show the agent
+    // a plain message instead of a server error.
+    console.error(JSON.stringify({ event: "connect_failed", flow, client_id: clientId, error: String(error) }));
+    const message = "This site can't connect agents right now. Try again later.";
+    const response = wantsJson
+      ? json({ error: "connect_failed", message }, 502)
+      : connectPage(config.siteName, { returnTo, agentHint }, message, options);
+    return withHeaders(response, {}, 502);
+  }
 
   const pending: PendingRequest = {
     authReqId: started.requestId,
@@ -124,6 +136,7 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
     returnTo,
     expiresAt: Date.now() + started.expiresIn * 1000,
     interval: started.interval,
+    device: started.device,
   };
   const bindToken = wantsJson ? undefined : base64Url(crypto.getRandomValues(new Uint8Array(32)));
   pending.binding = bindToken ? { cookieHash: await sha256(bindToken) } : ip ? { ip } : undefined;
@@ -138,15 +151,7 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
     verified_by: agent.source,
   }));
 
-  if (!wantsJson) {
-    const page = waitingPage(config.siteName, {
-      handle, code: started.code, interval: started.interval, returnTo, cookies: Boolean(config.cookies), device: started.device,
-    });
-    const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-    page.headers.append("set-cookie",
-      `${BIND_COOKIE}=${bindToken}; Path=/status; Max-Age=${started.expiresIn}; HttpOnly${secure}; SameSite=Strict`);
-    return page;
-  }
+  if (!wantsJson) return redirectToWait(request, handle, bindToken!, started.expiresIn);
   const link = started.device?.verificationUriComplete ?? started.device?.verificationUri;
   return json({
     flow,
@@ -295,12 +300,18 @@ async function stepUp(request: Request, url: URL, config: Config): Promise<Respo
   const code = randomCode(6);
   const returnTo = safeReturnTo(url.searchParams.get("return_to"));
 
-  const ciba = await startCiba(config, {
-    clientId,
-    email: action.email,
-    scope: config.stepUpScope,
-    bindingMessage: `${agentLabel(agent)} wants to place a ${action.amount} order at ${config.siteName}. Code ${code}`,
-  });
+  let ciba: Awaited<ReturnType<typeof startCiba>>;
+  try {
+    ciba = await startCiba(config, {
+      clientId,
+      email: action.email,
+      scope: config.stepUpScope,
+      bindingMessage: `${agentLabel(agent)} wants to place a ${action.amount} order at ${config.siteName}. Code ${code}`,
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "step_up_failed", client_id: clientId, error: String(error) }));
+    return json({ error: "step_up_failed", message: "We couldn't send the approval request. Go back and try again later." }, 502);
+  }
   const bindToken = base64Url(crypto.getRandomValues(new Uint8Array(32)));
   const pending: PendingRequest = {
     authReqId: ciba.authReqId, clientId, tier: agent.tier, signatureAgent: agent.signatureAgent, agentId, code, returnTo,
@@ -310,10 +321,33 @@ async function stepUp(request: Request, url: URL, config: Config): Promise<Respo
   const handle = await seal(pending, config.stateSecret);
   console.log(JSON.stringify({ event: "step_up_started", agent_id: agentId, tier: agent.tier, client_id: clientId, amount: action.amount }));
 
-  const page = waitingPage(config.siteName, { handle, code, interval: ciba.interval, returnTo, cookies: Boolean(config.cookies) });
-  const secure = url.protocol === "https:" ? "; Secure" : "";
-  page.headers.append("set-cookie", `${BIND_COOKIE}=${bindToken}; Path=/status; Max-Age=${ciba.expiresIn}; HttpOnly${secure}; SameSite=Strict`);
-  return page;
+  return redirectToWait(request, handle, bindToken, ciba.expiresIn);
+}
+
+/**
+ * After starting a request in a browser, send it to /wait instead of answering the form
+ * directly. Reloading /wait just shows the request again, while reloading a form's answer
+ * would resubmit it and start a new approval.
+ */
+function redirectToWait(request: Request, handle: string, bindToken: string, expiresIn: number): Response {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  const headers = new Headers({ location: `/wait?handle=${encodeURIComponent(handle)}`, "cache-control": "no-store" });
+  headers.append("set-cookie", `${BIND_COOKIE}=${bindToken}; Path=/; Max-Age=${expiresIn}; HttpOnly${secure}; SameSite=Strict`);
+  return new Response(null, { status: 303, headers });
+}
+
+/** The waiting page for a request this browser started. Safe to reload. */
+async function wait(request: Request, url: URL, config: Config): Promise<Response> {
+  const handle = url.searchParams.get("handle") ?? "";
+  const pending = await unseal(handle, config.stateSecret);
+  if (!pending) return json({ error: "invalid_request", message: "This approval request is invalid or has expired. Start again." }, 400);
+  if (!(await boundTo(pending, request))) {
+    return json({ error: "forbidden", message: "This approval request was started in a different browser." }, 403);
+  }
+  return waitingPage(config.siteName, {
+    handle, code: pending.code, interval: pending.interval, returnTo: pending.returnTo,
+    cookies: Boolean(config.cookies), device: pending.device,
+  });
 }
 
 interface Agent {

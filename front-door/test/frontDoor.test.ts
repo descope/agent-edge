@@ -240,6 +240,14 @@ async function approve(overrides: Partial<Env> = {}, token: Record<string, unkno
 }
 const cookie = (response: Response, name: string) => response.headers.getSetCookie().find((c) => c.startsWith(`${name}=`));
 
+/** A browser request redirects to the reload-safe /wait page: returns its handle and binding cookie. */
+function toWait(response: Response) {
+  assert.equal(response.status, 303);
+  const location = new URL(response.headers.get("location")!, "https://front-door.test");
+  assert.equal(location.pathname, "/wait");
+  return { handle: location.searchParams.get("handle")!, bind: cookie(response, "fd_bind")!.split(";")[0], location: location.toString() };
+}
+
 test("approval sets the access token cookie for the site and a refresh cookie for the front door", async () => {
   const response = await approve({ COOKIE_DOMAIN: "shop.test" });
   const access = cookie(response, "DS")!;
@@ -310,7 +318,7 @@ test("a rejected refresh clears the cookies", async () => {
   assert.match(cookie(response, "DSR")!, /Max-Age=0/);
 });
 
-test("Descope's own error format is reported, not just the status code", async () => {
+test("Descope's own error format is logged, not shown to the agent", async () => {
   const real = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input) === BC) {
@@ -318,10 +326,19 @@ test("Descope's own error format is reported, not just the status code", async (
     }
     return real(input, init);
   }) as typeof fetch;
-  const response = await connectJson({ email: "pat@example.com" });
-  const body = (await response.json()) as { message: string };
-  assert.match(body.message, /E074130/);
-  assert.match(body.message, /Invalid client id/);
+  const logged: string[] = [];
+  const realError = console.error;
+  console.error = (line: string) => { logged.push(String(line)); };
+  try {
+    const response = await connectJson({ email: "pat@example.com" });
+    const body = (await response.json()) as { message: string };
+    assert.doesNotMatch(body.message, /E074130/);
+  } finally {
+    console.error = realError;
+  }
+  const entry = logged.find((l) => l.includes("connect_failed"))!;
+  assert.match(entry, /E074130/);
+  assert.match(entry, /Invalid client id/);
 });
 
 test("each tier's access description goes in the approval message, with {site} filled in", async () => {
@@ -385,13 +402,13 @@ test("a browser request's handle only works with the cookie set on its waiting p
     method: "POST",
     body: new URLSearchParams({ email: "pat@example.com" }),
   }));
-  const bind = started.headers.getSetCookie().find((c) => c.startsWith("fd_bind="))!;
-  assert.match(bind, /Path=\/status/);
-  assert.match(bind, /HttpOnly/);
-  const handle = (await started.text()).match(/"handle":"([^"]+)"/)![1];
+  const setBind = started.headers.getSetCookie().find((c) => c.startsWith("fd_bind="))!;
+  assert.match(setBind, /Path=\//);
+  assert.match(setBind, /HttpOnly/);
+  const { handle, bind } = toWait(started);
   const statusUrl = `https://front-door.test/status?handle=${encodeURIComponent(handle)}`;
   assert.equal((await call(new Request(statusUrl))).status, 403);
-  const withCookie = await call(new Request(statusUrl, { headers: { cookie: bind.split(";")[0] } }));
+  const withCookie = await call(new Request(statusUrl, { headers: { cookie: bind } }));
   assert.equal(((await withCookie.json()) as { status: string }).status, "pending");
 });
 
@@ -411,8 +428,8 @@ test("step-up asks for orders:write with a message naming the order the store si
     `https://front-door.test/step-up?request=${encodeURIComponent(request)}&return_to=${encodeURIComponent("https://shop.test/checkout")}`,
     { headers: { cookie: refreshCookie } },
   ), { STEP_UP_SECRET });
-  assert.equal(response.status, 200);
-  const html = await response.text();
+  const waiting = toWait(response);
+  const html = await (await call(new Request(waiting.location, { headers: { cookie: waiting.bind } }), { STEP_UP_SECRET })).text();
   assert.match(html, /Check your email/);
 
   const ciba = calls.filter((c) => c.url === BC).at(-1)!;
@@ -436,8 +453,7 @@ test("step-up rejects a request the store didn't sign, or one that expired", asy
 test("approving a step-up replaces the access cookie but keeps the read-only refresh cookie", async () => {
   const request = await stepUpRequest({ email: "pat@example.com", amount: "$18.95", exp: now() + 300 });
   const started = await call(new Request(`https://front-door.test/step-up?request=${encodeURIComponent(request)}`), { STEP_UP_SECRET });
-  const bind = started.headers.getSetCookie().find((c) => c.startsWith("fd_bind="))!.split(";")[0];
-  const handle = (await started.text()).match(/"handle":"([^"]+)"/)![1];
+  const { handle, bind } = toWait(started);
   tokenAnswers.push({ status: 200, body: { access_token: "write-token", token_type: "Bearer", expires_in: 300, refresh_token: "rt-write" } });
   const status = await call(new Request(`https://front-door.test/status?handle=${encodeURIComponent(handle)}`, { headers: { cookie: bind } }), { STEP_UP_SECRET });
   assert.match(cookie(status, "DS")!, /^DS=write-token;/);
@@ -491,11 +507,11 @@ test("polling a device flow uses the device_code grant and signs the browser in 
 test("a browser asking for a code gets a page with the link and code to give the user", async () => {
   deviceFlow = true;
   const response = await call(new Request("https://front-door.test/connect", { method: "POST", body: new URLSearchParams({ flow: "device" }) }));
-  const html = await response.text();
+  const waiting = toWait(response);
+  const html = await (await call(new Request(waiting.location, { headers: { cookie: waiting.bind } }))).text();
   assert.match(html, /href="https:\/\/auth\.test\/device\?user_code=WDJB-MJHT"/);
   assert.doesNotMatch(html, /enter this code/i, "the code rides in the link, so the user doesn't type it");
   assert.match(html, /WDJB-MJHT/, "the code is still shown, so the user can check it matches");
-  assert.ok(response.headers.getSetCookie().some((c) => c.startsWith("fd_bind=")));
 });
 
 test("without a device endpoint, connecting needs an email (the CIBA fallback)", async () => {
@@ -530,4 +546,65 @@ test("the connect page leads with a sign-in link, with the email form as the fal
   const deviceOnly = await (await call(new Request("https://front-door.test/"), { CIBA_FALLBACK: "false" })).text();
   assert.match(deviceOnly, /Get a sign-in link/);
   assert.doesNotMatch(deviceOnly, /name="email"/);
+});
+
+test("RESOURCE is sent on the connect, step-up, and token requests", async () => {
+  deviceFlow = true;
+  const resource = { RESOURCE: "https://northbound.camp/agent_resource" };
+  const { handle } = (await (await postJson({}, resource)).json()) as { handle: string };
+  await postJson({ email: "pat@example.com" }, resource);
+  tokenAnswers.push({ status: 400, body: { error: "authorization_pending" } });
+  await call(new Request(`https://front-door.test/status?handle=${encodeURIComponent(handle)}`), resource);
+
+  for (const url of [DEVICE, BC, TOKEN]) {
+    assert.equal(calls.find((c) => c.url === url)!.params.get("resource"), "https://northbound.camp/agent_resource", url);
+  }
+});
+
+test("without RESOURCE, no resource parameter is sent", async () => {
+  await postJson({ email: "pat@example.com" });
+  assert.equal(calls.find((c) => c.url === BC)!.params.get("resource"), null);
+});
+
+test("when Descope rejects a connection, agents get a clear message instead of a server error", async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === BC) return Response.json({ errorCode: "E011003", errorMessage: "invalid scope" }, { status: 400 });
+    return real(input, init);
+  }) as typeof fetch;
+
+  const json = await postJson({ email: "pat@example.com" });
+  assert.equal(json.status, 502);
+  const body = (await json.json()) as { error: string; message: string };
+  assert.equal(body.error, "connect_failed");
+  assert.doesNotMatch(body.message, /E011003|invalid scope/);
+
+  const page = await call(new Request("https://front-door.test/connect", { method: "POST", body: new URLSearchParams({ email: "pat@example.com" }) }));
+  const html = await page.text();
+  assert.match(html, /can(?:'|&#39;)t connect agents right now/);
+  assert.doesNotMatch(html, /E011003|invalid scope/);
+});
+
+test("the waiting page can be reloaded without starting a new request", async () => {
+  const started = await call(new Request("https://front-door.test/connect", {
+    method: "POST", body: new URLSearchParams({ email: "pat@example.com", return_to: "https://shop.test/cart" }),
+  }));
+  const { location, bind } = toWait(started);
+  const first = await (await call(new Request(location, { headers: { cookie: bind } }))).text();
+  const second = await (await call(new Request(location, { headers: { cookie: bind } }))).text();
+  assert.equal(calls.filter((c) => c.url === BC).length, 1, "one approval request, however often the page loads");
+  const code = first.match(/<p class="code">([A-Z2-9]{6})<\/p>/)![1];
+  assert.ok(second.includes(code), "the same code on every load");
+  assert.equal((await call(new Request(location))).status, 403, "only the browser that started it");
+});
+
+test("once approved, the waiting page sends the browser back to the store", async () => {
+  const started = await call(new Request("https://front-door.test/connect", {
+    method: "POST", body: new URLSearchParams({ email: "pat@example.com", return_to: "https://shop.test/cart" }),
+  }));
+  const { location, bind } = toWait(started);
+  const html = await (await call(new Request(location, { headers: { cookie: bind } }))).text();
+  assert.match(html, /returns you to Northbound, signed in/);
+  assert.match(html, /location\.assign\(cfg\.returnTo\)/);
+  assert.match(html, /"returnTo":"https:\/\/shop\.test\/cart"/);
 });

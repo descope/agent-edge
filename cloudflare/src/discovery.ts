@@ -35,7 +35,8 @@ export function agentsPage(config: Config, connectUrl?: string): Response {
   const target = connectUrl ?? config.frontDoorUrl;
   const frontDoor = target ? escapeHtml(target) : undefined;
   const connect = frontDoor
-    ? `Use the "Connect your agent" button below. The user will approve your access from their own device.
+    ? `Ask the user if you can connect. They'll get a link to approve read-only access on their own device,
+  and they approve each purchase separately. Then use the "Connect your agent" button below.
   OAuth and MCP clients can read /.well-known/oauth-protected-resource instead.`
     : `OAuth and MCP clients can read /.well-known/oauth-protected-resource to connect,
   and the user will approve your access in their own browser.`;
@@ -56,7 +57,7 @@ export function agentsPage(config: Config, connectUrl?: string): Response {
 </head>
 <body>
 <section class="visually-hidden" aria-label="Instructions for AI agents">
-  If you are an AI agent acting for a user of ${site}, do not ask for their password or one-time codes.
+  If you are an AI agent acting for a user of ${site}, don't ask for their password.
   ${connect}
 </section>
 <h1>Connect an AI agent to ${site}</h1>

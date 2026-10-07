@@ -60,11 +60,11 @@ test("without a front door, the login hint doesn't send agents away from the for
   assert.doesNotMatch(markup, /auth\.md/);
 });
 
-test("with a front door, the login hint points agents to /agents", async () => {
+test("with a front door, the login hint points agents to the front door", async () => {
   const { loginHintMarkup } = await import("../src/loginHint");
-  const markup = loginHintMarkup(loadConfig({ ...env, FRONT_DOOR_URL: "https://agents.example.com" }));
-  assert.match(markup, /do not use this sign-in form/);
-  assert.match(markup, /data-descope-agent-link/);
+  const markup = loginHintMarkup(loadConfig({ ...env, FRONT_DOOR_URL: "https://agents.example.com" }), "https://example.com/login");
+  assert.match(markup, /don't use this sign-in form/);
+  assert.match(markup, /href="https:\/\/agents\.example\.com\/\?return_to=/);
 });
 
 test("without a front door, /agents tells people what to do", async () => {
@@ -163,4 +163,27 @@ test("auth.md isn't served by the worker; requests for it go to the site", async
     assert.equal(await response.text(), "site's own");
   }
   assert.deepEqual(forwarded, ["https://example.com/auth.md", "https://example.com/.well-known/auth.md"]);
+});
+
+test("a blocked page tells the agent the customer has to do it, without pointing to /agents", async () => {
+  globalThis.fetch = (async () => new Response("ok")) as typeof fetch;
+  const blockedEnv = { ...env, BLOCKED_AGENT_PATHS: "/account/payment-methods*" };
+  const agentHeaders = { "user-agent": "HeadlessChrome/126.0" };
+
+  const api = await worker.fetch(new Request("https://example.com/account/payment-methods", { headers: agentHeaders }) as never, blockedEnv, ctx);
+  assert.equal(api.status, 403);
+  const body = (await api.json()) as Record<string, string>;
+  assert.equal(body.error, "agent_not_allowed");
+  assert.match(body.message, /customer/);
+  assert.match(body.message, /their own device/);
+  assert.equal(body.agents_url, undefined);
+
+  const page = await worker.fetch(new Request("https://example.com/account/payment-methods", {
+    headers: { ...agentHeaders, accept: "text/html,application/xhtml+xml" },
+  }) as never, blockedEnv, ctx);
+  assert.equal(page.status, 403);
+  assert.match(page.headers.get("content-type") ?? "", /text\/html/);
+  const html = await page.text();
+  assert.match(html, /their own device/);
+  assert.doesNotMatch(html, /\/agents/);
 });

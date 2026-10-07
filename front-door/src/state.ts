@@ -12,6 +12,8 @@ export interface PendingRequest {
   signatureAgent?: string;
   agentId: string;
   code: string;
+  /** For the device flow: where the user approves, shown again whenever the waiting page loads. */
+  device?: { verificationUri: string; verificationUriComplete?: string };
   /** A step-up for one action: its token replaces the access cookie but not the refresh cookie. */
   stepUp?: boolean;
   returnTo?: string;

@@ -19,6 +19,7 @@ export interface Env {
   TRUSTED_ACCESS?: string;
   STEP_UP_SECRET?: string;
   CIBA_FALLBACK?: string;
+  RESOURCE?: string;
   STEP_UP_SCOPE?: string;
   VERIFIED_ACCESS?: string;
   UNVERIFIED_ACCESS?: string;
@@ -48,6 +49,8 @@ export interface Config {
   stepUpScope: string;
   /** Whether agents can connect by having an approval email sent (CIBA). Device codes are the main path. */
   cibaFallback: boolean;
+  /** Sent as the resource parameter (RFC 8707) when Descope ties the scopes to a resource. */
+  resource?: string;
   stateSecret: string;
   hintSigningSecret?: string;
   privateKey?: JsonWebKey & { kid?: string };
@@ -95,6 +98,7 @@ export function loadConfig(env: Env): Config {
     stepUpSecret: env.STEP_UP_SECRET || undefined,
     stepUpScope: env.STEP_UP_SCOPE || "openid orders:write",
     cibaFallback: env.CIBA_FALLBACK !== "false",
+    resource: env.RESOURCE || undefined,
     hintSigningSecret: env.HINT_SIGNING_SECRET || undefined,
     privateKey: json("PRIVATE_KEY_JWK", env.PRIVATE_KEY_JWK, undefined),
     clientSecrets: json("CLIENT_SECRETS", env.CLIENT_SECRETS, {}),
