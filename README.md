@@ -145,7 +145,9 @@ Either way, check the signature, issuer, audience, and expiry, and accept Descop
 - **Enforce the limits.** Compare actions against the scopes and `authorization_details` in the token, for example rejecting a checkout above the approved amount with a 403 the agent can relay to the user.
 - **Keep sensitive actions human-only.** Refuse password and payment method changes from any token that has an `act` claim.
 - **Record the agent on every write,** so support can see which actions came from the customer and which came from their agent.
-- **Ask for step-up when the token isn't enough.** If a read-only agent tries to buy, send it to the front door's `/step-up` with a signed description of the order. The user approves that order, and the agent comes back with a token that allows it.
+- **Ask for step-up when the token isn't enough.** Your app decides which actions need the customer's approval, because only it knows what an action means, such as an order's total. When a token doesn't allow the action, ask for more instead of just refusing:
+  - **For browser agents,** redirect to the front door's `/step-up` with a signed description of the action. The customer approves that exact action through Descope, and the agent comes back with a token that allows it. In Northbound, that's three lines at checkout and a small signing helper. See [Step-up for purchases](front-door/README.md#step-up-for-purchases) for the flow.
+  - **For APIs,** return `403` with `WWW-Authenticate: Bearer error="insufficient_scope", scope="orders:write"` (RFC 6750). OAuth and MCP clients read that and ask the customer for the extra scope.
 
 The `x-descope-agent` headers are useful for logging and for treating unauthenticated agent traffic differently. Base authorization decisions on the token, not the headers.
 
