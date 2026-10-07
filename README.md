@@ -42,6 +42,8 @@ It identifies agents. It doesn't decide what they can do; your site does that wi
 
 **Agents that can't,** such as computer use agents in a cloud VM, go through the front door. It gives them a sign-in link to pass to the user (the device flow). Some agents, such as Muse and Instinct, are reluctant to hand users links, so they can send the user's email instead and Descope emails the approval (CIBA). Either way the user approves on their own device.
 
+CIBA also suits step-up. When a signed-in agent tries to buy something, Descope emails the user to approve that one order, and the agent doesn't have to pass anything along. See [Step-up for purchases](front-door/README.md#step-up-for-purchases).
+
 ```mermaid
 sequenceDiagram
   autonumber
