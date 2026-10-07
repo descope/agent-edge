@@ -100,7 +100,7 @@ export default {
     // Show browser agents the way to /agents on the human login page.
     if (config.injectLoginHint && request.method === "GET" &&
         pathMatches(url.pathname, config.loginPaths)) {
-      response = injectLoginHint(response, config);
+      response = injectLoginHint(response, config, url.toString());
     }
 
     return response;

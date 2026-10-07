@@ -60,11 +60,11 @@ test("without a front door, the login hint doesn't send agents away from the for
   assert.doesNotMatch(markup, /auth\.md/);
 });
 
-test("with a front door, the login hint points agents to /agents", async () => {
+test("with a front door, the login hint points agents to the front door", async () => {
   const { loginHintMarkup } = await import("../src/loginHint");
-  const markup = loginHintMarkup(loadConfig({ ...env, FRONT_DOOR_URL: "https://agents.example.com" }));
-  assert.match(markup, /do not use this sign-in form/);
-  assert.match(markup, /data-descope-agent-link/);
+  const markup = loginHintMarkup(loadConfig({ ...env, FRONT_DOOR_URL: "https://agents.example.com" }), "https://example.com/login");
+  assert.match(markup, /don't use this sign-in form/);
+  assert.match(markup, /href="https:\/\/agents\.example\.com\/\?return_to=/);
 });
 
 test("without a front door, /agents tells people what to do", async () => {

@@ -55,12 +55,17 @@ test("API paths default to /api/*", () => {
   assert.equal(pathMatches("/login", config.apiPaths), false);
 });
 
-test("the login hint includes the hidden note and the visible link", () => {
-  const markup = loginHintMarkup(config);
+test("the login hint sends agents straight to the front door and back to the page", () => {
+  const markup = loginHintMarkup(config, "https://example.com/login?next=/cart");
   assert.match(markup, /data-descope-agent-hint/);
-  assert.match(markup, /do not ask for the user's password/);
-  assert.match(markup, /href="\/agents"/);
+  assert.match(markup, /Don't ask for their password/);
+  assert.match(markup, /approve read-only access on their own device/);
+  assert.match(markup, /approve each purchase separately/);
+  const link = "https://agents.example.com/?return_to=https%3A%2F%2Fexample.com%2Flogin%3Fnext%3D%2Fcart";
+  assert.ok(markup.includes(`Ask them, then go to ${link.replace(/&/g, "&#38;")}`), markup);
+  assert.ok(markup.includes(`href="${link}"`), markup);
   assert.match(markup, /Signing in with an AI assistant\?/);
+  assert.doesNotMatch(markup, /href="\/agents"/);
 });
 
 test("the visible link can be turned off", () => {
