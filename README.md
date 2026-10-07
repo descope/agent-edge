@@ -13,7 +13,7 @@ Integrations start in monitor mode and fail open, so they can be deployed safely
 
 ## How it works
 
-When an AI agent reaches a login page today, it asks the user for their password and signs in as them, so the site can't tell the agent from the customer. These integrations give agents their own way in. The agent is identified, the user approves what it may do from their own device, and Descope issues a token that names both the user and the agent and carries the limits the user approved. [Letting your customers' AI agents in](TODO-blog-url) covers the background.
+When an AI agent reaches a login page today, it asks the user for their password and signs in as them, so the site can't tell the agent from the customer. These integrations give agents their own way in. The agent is identified, the user approves what it may do from their own device, and Descope issues a token that names both the user and the agent and carries the limits the user approved.
 
 ```mermaid
 flowchart LR

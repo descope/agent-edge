@@ -171,9 +171,3 @@ These are still open. Close the ones that matter for your site before putting th
 - **Agents calling your API directly can't refresh.** The refresh token only lives in the browser cookie, so they get a new token by connecting again.
 - **No sign-out or revocation endpoint** yet for clearing the cookies and revoking the tokens.
 - **Longer rate limit windows and bot protection,** such as a WAF rule or Turnstile on the email form, if the per-minute limits aren't enough.
-
-## Open questions about Descope
-
-- **The `private_key_jwt` audience.** The assertion lists both the issuer and the endpoint as its audience. Confirm which one Descope expects.
-- **Getting the agent ID into the token,** most likely through a custom claim set in the consent flow.
-- **The approval message.** Confirm that Descope shows the `binding_message` to the user in the approval email or on the consent screen.
