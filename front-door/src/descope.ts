@@ -5,9 +5,14 @@ interface Discovery {
   issuer: string;
   token_endpoint: string;
   backchannel_authentication_endpoint?: string;
+  device_authorization_endpoint?: string;
 }
 
 const CIBA_GRANT = "urn:openid:params:grant-type:ciba";
+const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
+
+/** How a pending request is approved: CIBA (an approval email) or the device flow (a code the user enters). */
+export type Flow = "ciba" | "device";
 
 let discoveryCache: { url: string; value: Discovery } | undefined;
 
@@ -17,11 +22,17 @@ export async function discover(config: Config): Promise<Discovery> {
   const response = await fetch(config.discoveryUrl, { headers: { accept: "application/json" } });
   if (!response.ok) throw new Error(`discovery failed (${response.status})`);
   const value = (await response.json()) as Discovery;
-  if (!value.backchannel_authentication_endpoint) {
-    throw new Error("discovery has no backchannel_authentication_endpoint; enable CIBA on the inbound app");
-  }
   discoveryCache = { url: config.discoveryUrl, value };
   return value;
+}
+
+/** Whether the inbound app offers the device flow. False if discovery can't be read. */
+export async function deviceFlowAvailable(config: Config): Promise<boolean> {
+  try {
+    return Boolean((await discover(config)).device_authorization_endpoint);
+  } catch {
+    return false;
+  }
 }
 
 /** Test hook: forget the cached discovery document. */
@@ -87,7 +98,8 @@ export async function startCiba(
   request: { clientId: string; email: string; scope: string; bindingMessage: string },
 ): Promise<CibaStart> {
   const discovery = await discover(config);
-  const endpoint = discovery.backchannel_authentication_endpoint!;
+  const endpoint = discovery.backchannel_authentication_endpoint;
+  if (!endpoint) throw new Error("discovery has no backchannel_authentication_endpoint; enable CIBA on the inbound app");
   const { status, body } = await post(endpoint, {
     ...(await clientAuth(config, request.clientId, endpoint, discovery.issuer)),
     scope: request.scope,
@@ -123,19 +135,57 @@ function tokenSet(body: Record<string, unknown>): TokenSet {
   };
 }
 
+export interface DeviceStart {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete?: string;
+  expiresIn: number;
+  interval: number;
+}
+
+/** Starts a device flow (RFC 8628). Nothing is sent to the user: the agent passes the link and code on. */
+export async function startDevice(
+  config: Config,
+  request: { clientId: string; scope: string; loginHint?: string },
+): Promise<DeviceStart> {
+  const discovery = await discover(config);
+  const endpoint = discovery.device_authorization_endpoint;
+  if (!endpoint) throw new Error("discovery has no device_authorization_endpoint; enable the device flow on the inbound app");
+  const { status, body } = await post(endpoint, {
+    ...(await clientAuth(config, request.clientId, endpoint, discovery.issuer)),
+    scope: request.scope,
+    // Not part of RFC 8628, but some servers use it to pre-fill sign-in.
+    ...(request.loginHint ? { login_hint: request.loginHint } : {}),
+  });
+  if (status !== 200 || typeof body.device_code !== "string" || typeof body.user_code !== "string") {
+    throw new Error(`device authorization failed: ${String(body.error ?? status)} ${String(body.error_description ?? "")}`.trim());
+  }
+  return {
+    deviceCode: body.device_code,
+    userCode: body.user_code,
+    verificationUri: String(body.verification_uri ?? body.verification_url ?? ""),
+    verificationUriComplete: typeof body.verification_uri_complete === "string" ? body.verification_uri_complete : undefined,
+    expiresIn: Number(body.expires_in ?? 600),
+    interval: Number(body.interval ?? 5),
+  };
+}
+
 export type PollResult =
   | { status: "pending"; slowDown?: boolean }
   | { status: "approved"; token: TokenSet }
   | { status: "denied" | "expired" }
   | { status: "error"; error: string };
 
-export async function pollToken(config: Config, clientId: string, authReqId: string): Promise<PollResult> {
+/** Polls for the token. requestId is the CIBA auth_req_id or the device flow's device_code. */
+export async function pollToken(config: Config, clientId: string, requestId: string, flow: Flow = "ciba"): Promise<PollResult> {
   const discovery = await discover(config);
   const endpoint = discovery.token_endpoint;
   const { status, body } = await post(endpoint, {
     ...(await clientAuth(config, clientId, endpoint, discovery.issuer)),
-    grant_type: CIBA_GRANT,
-    auth_req_id: authReqId,
+    ...(flow === "device"
+      ? { grant_type: DEVICE_GRANT, device_code: requestId }
+      : { grant_type: CIBA_GRANT, auth_req_id: requestId }),
   });
   if (status === 200 && typeof body.access_token === "string") return { status: "approved", token: tokenSet(body) };
   switch (body.error) {

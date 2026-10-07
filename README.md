@@ -73,42 +73,40 @@ sequenceDiagram
 
 ### Agents that can't open a browser
 
-Computer use agents in a cloud VM and agents people reach over text message can't send the user to a sign-in page. They go through the front door, which asks the user for approval on their own device with CIBA.
+Computer use agents in a cloud VM and agents people reach over text message can't send the user to a sign-in page. They go through the front door. By default it uses the device flow: the agent gets a link and a short code from Descope, gives them to the user, and the user approves on their own device. Agents that can't pass on a link can send the user's email instead, and Descope emails the user an approval request (CIBA).
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant A as Agent
   participant E as Edge integration
-  participant F as Descope front door
+  participant F as Front door
   participant D as Descope
   actor U as User
-  participant S as Your API
+  participant S as Your site
   A->>E: GET /login, signed with Web Bot Auth
   E->>E: Verify the signature against the platform's key directory
   E-->>A: 302 to the front door with return_to and agent_hint
-  A->>F: Opens the front door page
-  F-->>A: Page with an email field and plain-language instructions
-  A->>F: Submits the user's email
+  A->>F: Get a sign-in code
   F->>F: Pick the client: trusted platform, unknown platform, or unverified
-  F->>D: CIBA request signed with private_key_jwt, with the user's email and a binding message
-  D-->>F: auth_req_id
-  F-->>A: Waiting page: the user needs to approve from their email
-  D->>U: Approval email
-  U->>D: Signs in with your existing login and approves on the consent screen
+  F->>D: Device authorization request
+  D-->>F: device_code, plus a link and user code
+  F-->>A: Waiting page with the link and code
+  A->>U: "Open this link and enter WDJB-MJHT"
+  U->>D: Signs in and approves on the consent screen
   loop Until the user approves or declines
     A->>F: Waiting page checks the status
-    F->>D: Token request with auth_req_id
+    F->>D: Token request with device_code
   end
-  D-->>F: Token with the user as sub, the agent as act, and approved limits
-  F-->>A: Token
-  A->>E: API call with Bearer token
+  D-->>F: Token with the user as sub, the agent as act, and read-only scope
+  F-->>A: Session cookie (browsers) or token (API agents)
+  A->>E: Requests to your site, now signed in as the user
   E->>S: Forward
-  S->>S: Validate the token, enforce its limits, and log the agent
+  S->>S: Validate the token and enforce its scopes
   S-->>A: Response
 ```
 
-The front door serves the page with the email field, so the edge integration never handles the user's email. Browser agents fill it in like any form. Agents that go to `/agents` instead of the login page get pointed to the same page, starting at step 4.
+The edge integration never handles the user's email or the code; the front door does. Agents that go to `/agents` instead of the login page get pointed to the same front door page.
 
 What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead. The front door sets the access token as a cookie on your domain, so the agent's browser sends it on every request without adding a header. Your site has to accept the token from that cookie. See [Browser agents get a session cookie](front-door/README.md#browser-agents-get-a-session-cookie).
 

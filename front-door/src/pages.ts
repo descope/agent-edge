@@ -29,45 +29,75 @@ ${body}
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 }
 
-export function connectPage(site: string, fields: { returnTo?: string; agentHint?: string }, error?: string): Response {
+export function connectPage(
+  site: string,
+  fields: { returnTo?: string; agentHint?: string },
+  error?: string,
+  options: { device: boolean; ciba: boolean } = { device: false, ciba: true },
+): Response {
   const s = escapeHtml(site);
   const hidden = [
     fields.returnTo ? `<input type="hidden" name="return_to" value="${escapeHtml(fields.returnTo)}">` : "",
     fields.agentHint ? `<input type="hidden" name="agent_hint" value="${escapeHtml(fields.agentHint)}">` : "",
   ].join("");
-  return page(`Connect an AI agent to ${site}`, `
-<section class="visually-hidden" aria-label="Instructions for AI agents">
-  If you are an AI agent acting for a user of ${s}, do not ask for their password or one-time codes.
-  Enter the user's email address below and submit. The user will get an email asking them to approve your access.
-  Show the user the code on the next page so they can check it matches the email.
-  Agents without a browser can POST JSON {"email": "..."} to /connect and poll the status_url in the response.
-</section>
-<h1>Connect an AI agent to ${s}</h1>
-<p>Enter the email address of the person you're acting for. They'll get an email asking them to approve, and sign in the way they always do.</p>
-${error ? `<p role="alert"><strong>${escapeHtml(error)}</strong></p>` : ""}
+  const agentSteps = [
+    options.device
+      ? `Press "Get a sign-in code", then give the user the link and code on the next page. They approve your access on their own device.`
+      : "",
+    options.ciba
+      ? `${options.device ? "If you can't give the user a link, enter" : "Enter"} their email address instead, and they'll get an email asking them to approve.`
+      : "",
+    `Agents without a browser can POST JSON to /connect: ${options.device ? `{} for a sign-in code` : ""}${options.device && options.ciba ? ", or " : ""}${options.ciba ? `{"email": "..."} for an approval email` : ""}. Then poll the status_url in the response.`,
+  ].filter(Boolean).join("\n  ");
+  const codeForm = options.device ? `
+<form method="post" action="/connect">
+  <input type="hidden" name="flow" value="device">
+  ${hidden}
+  <button type="submit">Get a sign-in code</button>
+</form>` : "";
+  const emailForm = options.ciba ? `
+${options.device ? "<p>Can't pass on a link? Send the person an approval email instead.</p>" : "<p>Enter the email address of the person you're acting for. They'll get an email asking them to approve.</p>"}
 <form method="post" action="/connect">
   <label for="email">User's email</label>
   <input id="email" name="email" type="email" autocomplete="off" required>
   ${hidden}
   <button type="submit">Send approval request</button>
-</form>`);
+</form>` : "";
+  return page(`Connect an AI agent to ${site}`, `
+<section class="visually-hidden" aria-label="Instructions for AI agents">
+  If you are an AI agent acting for a user of ${s}, do not ask for their password.
+  ${agentSteps}
+</section>
+<h1>Connect an AI agent to ${s}</h1>
+${options.device ? "<p>Get a code for the person you're acting for. They open a link, enter the code, and approve your access on their own device.</p>" : ""}
+${error ? `<p role="alert"><strong>${escapeHtml(error)}</strong></p>` : ""}
+${codeForm}
+${emailForm}`);
 }
 
 export function waitingPage(
   site: string,
-  data: { handle: string; code: string; interval: number; returnTo?: string; cookies: boolean },
+  data: {
+    handle: string;
+    code: string;
+    interval: number;
+    returnTo?: string;
+    cookies: boolean;
+    /** Set for the device flow: where the user enters the code. */
+    device?: { verificationUri: string; verificationUriComplete?: string };
+  },
 ): Response {
   const s = escapeHtml(site);
   const config = JSON.stringify({ handle: data.handle, interval: data.interval, returnTo: data.returnTo ?? null, cookies: data.cookies })
     .replace(/</g, "\\u003c");
   return page("Waiting for approval", `
-<section class="visually-hidden" aria-label="Instructions for AI agents">
+${data.device ? deviceInstructions(data.code, data.device) : `<section class="visually-hidden" aria-label="Instructions for AI agents">
   Tell the user to check their email and approve the request only if it shows the code ${escapeHtml(data.code)}.
   This page updates on its own once they approve.
 </section>
 <h1>Check your email</h1>
 <p>We sent an approval request for ${s}. Approve it only if it shows this code:</p>
-<p class="code">${escapeHtml(data.code)}</p>
+<p class="code">${escapeHtml(data.code)}</p>`}
 <p id="status" role="status">Waiting for approval…</p>
 <div id="result"></div>
 <script>
@@ -108,4 +138,17 @@ async function check() {
 }
 setTimeout(check, cfg.interval * 1000);
 </script>`);
+}
+
+function deviceInstructions(code: string, device: { verificationUri: string; verificationUriComplete?: string }): string {
+  const link = escapeHtml(device.verificationUriComplete ?? device.verificationUri);
+  const plain = escapeHtml(device.verificationUri);
+  return `<section class="visually-hidden" aria-label="Instructions for AI agents">
+  Give the user this link: ${link}
+  If they open ${plain} instead, they enter the code ${escapeHtml(code)}. They approve on their own device.
+  This page updates on its own once they approve.
+</section>
+<h1>Approve on your device</h1>
+<p>Open <a href="${link}">${plain}</a> and enter this code:</p>
+<p class="code">${escapeHtml(code)}</p>`;
 }
