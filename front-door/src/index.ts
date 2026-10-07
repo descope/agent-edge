@@ -200,7 +200,10 @@ async function status(request: Request, url: URL, config: Config): Promise<Respo
     return json({ status: "pending", interval: slower.interval, handle: await seal(slower, config.stateSecret) });
   }
 
-  console.log(JSON.stringify({ event: `connect_${result.status}`, agent_id: pending.agentId, tier: pending.tier }));
+  console.log(JSON.stringify({
+    event: `connect_${result.status}`, agent_id: pending.agentId, tier: pending.tier,
+    ...(result.status === "approved" ? { token: tokenSummary(result.token.access_token) } : {}),
+  }));
   if (result.status === "approved") {
     const { refresh_token: refreshToken, ...token } = result.token;
     const response = json({ status: "approved", agent_id: pending.agentId, ...token });
@@ -213,6 +216,19 @@ async function status(request: Request, url: URL, config: Config): Promise<Respo
     return response;
   }
   return json(result);
+}
+
+/** The claims a site checks, for debugging rejected tokens. Never logs the token itself. */
+function tokenSummary(token: string): Record<string, unknown> {
+  try {
+    const claims = JSON.parse(new TextDecoder().decode(fromBase64Url(token.split(".")[1] ?? "")));
+    return {
+      iss: claims.iss, aud: claims.aud, scope: claims.scope, exp: claims.exp,
+      has_email: typeof claims.email === "string", act_sub: claims.act?.sub,
+    };
+  } catch {
+    return { error: "not a JWT" };
+  }
 }
 
 /**
