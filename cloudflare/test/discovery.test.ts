@@ -55,23 +55,17 @@ test("API paths default to /api/*", () => {
   assert.equal(pathMatches("/login", config.apiPaths), false);
 });
 
-test("the login hint sends agents straight to the front door and back to the page", () => {
+test("the login hint is a visible box that links to the front door and back to the page", () => {
   const markup = loginHintMarkup(config, "https://example.com/login?next=/cart");
-  assert.match(markup, /data-descope-agent-hint/);
-  assert.match(markup, /Don't ask for their password/);
-  assert.match(markup, /approve read-only access on their own device/);
+  assert.match(markup, /^<aside data-descope-agent-hint/);
+  assert.match(markup, /Using an AI assistant\?/);
+  assert.match(markup, /without your password/);
   assert.match(markup, /approve each purchase separately/);
   const link = "https://agents.example.com/?return_to=https%3A%2F%2Fexample.com%2Flogin%3Fnext%3D%2Fcart";
-  assert.ok(markup.includes(`Ask them, then go to ${link.replace(/&/g, "&#38;")}`), markup);
   assert.ok(markup.includes(`href="${link}"`), markup);
-  assert.match(markup, /Signing in with an AI assistant\?/);
-  assert.doesNotMatch(markup, /href="\/agents"/);
-});
-
-test("the visible link can be turned off", () => {
-  const markup = loginHintMarkup(loadConfig({ ...env, LOGIN_HINT_VISIBLE: "false" }));
-  assert.match(markup, /data-descope-agent-hint/);
-  assert.doesNotMatch(markup, /data-descope-agent-link/);
+  // Nothing hidden, and nothing that gives AI agents orders.
+  assert.doesNotMatch(markup, /clip:|width:1px|visually-hidden/);
+  assert.doesNotMatch(markup, /If you are an AI agent|don't use this sign-in form/i);
 });
 
 test("the site name is escaped in the hint", () => {

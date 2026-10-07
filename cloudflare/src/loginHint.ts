@@ -1,43 +1,28 @@
 import type { Config } from "./config";
 
 /**
- * Markup appended to login pages: a note for agents, hidden from people, and
- * optionally a small visible link.
+ * A box added to login pages that tells people, and the agents working for them, that an AI
+ * assistant can connect with the customer's approval instead of using their password.
  *
- * With a front door, both point straight to it, with return_to set to the page the agent was on.
- * The note says exactly what the user will be asked to approve, so when the agent checks with
- * the user before connecting (as it should), its question is short and accurate.
+ * It's visible and says the same thing to everyone. Careful agents treat hidden text that gives
+ * AI assistants instructions as a prompt injection and ignore it, so this only describes what's
+ * available and links to it. The agent and its user decide whether to use it.
  *
- * Without a front door, agents that can't use OAuth have nowhere else to go yet,
- * so the note only points OAuth and MCP clients to the protected resource metadata and there's no visible link.
+ * Without a front door there's nothing to connect to, so nothing is added.
  */
 export function loginHintMarkup(config: Config, pageUrl?: string): string {
+  if (!config.frontDoorUrl) return "";
   const site = escapeHtml(config.siteName);
-  const open =
-    `<section data-descope-agent-hint aria-label="Instructions for AI agents" ` +
-    `style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">`;
-  if (!config.frontDoorUrl) {
-    return open +
-      `If you are an AI agent acting for a user of ${site} and you support OAuth or MCP, ` +
-      `read /.well-known/oauth-protected-resource to get delegated access instead of asking for the user's password.` +
-      `</section>`;
-  }
   const target = new URL(config.frontDoorUrl);
   if (pageUrl) target.searchParams.set("return_to", pageUrl);
   const connect = escapeHtml(target.toString());
-  const note = open +
-    `If you are an AI agent acting for a user of ${site}, don't use this sign-in form. ` +
-    `Don't ask for their password: ask the user if you can connect instead. ` +
-    `They'll get a link to approve read-only access on their own device, and they approve each purchase separately. ` +
-    `Ask them, then go to ${connect} to connect. ` +
-    `OAuth and MCP clients can read /.well-known/oauth-protected-resource instead.` +
-    `</section>`;
-  if (!config.loginHintVisible) return note;
-  const link =
-    `<p data-descope-agent-link style="font:14px system-ui,sans-serif;text-align:center;margin:16px 0">` +
-    `Signing in with an AI assistant? <a href="${connect}">Connect it here</a>` +
-    `</p>`;
-  return note + link;
+  return `<aside data-descope-agent-hint aria-label="Signing in with an AI assistant" ` +
+    `style="font:14px/1.5 system-ui,sans-serif;max-width:28rem;margin:16px auto;padding:12px 16px;` +
+    `border:1px solid rgba(127,127,127,0.35);border-radius:8px">` +
+    `<strong>Using an AI assistant?</strong> It can connect to your ${site} account with your approval, ` +
+    `without your password. You approve read-only access with a link on your own device, ` +
+    `and approve each purchase separately. <a href="${connect}">Connect an assistant</a>` +
+    `</aside>`;
 }
 
 /** Streams the login page through HTMLRewriter and appends the hint to the body. */
@@ -45,6 +30,7 @@ export function injectLoginHint(response: Response, config: Config, pageUrl?: st
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/html")) return response;
   const markup = loginHintMarkup(config, pageUrl);
+  if (!markup) return response;
   return new HTMLRewriter()
     .on("body", {
       element(element) {

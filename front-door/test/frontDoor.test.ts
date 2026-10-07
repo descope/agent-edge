@@ -84,7 +84,9 @@ test("the connect page has an email form and keeps return_to and agent_hint", as
   assert.match(html, /<input id="email" name="email" type="email"/);
   assert.match(html, /name="return_to" value="https:\/\/shop.test\/login"/);
   assert.match(html, /name="agent_hint" value="abc.def"/);
-  assert.match(html, /Instructions for AI agents/);
+  // Everything is visible: no hidden text addressed to AI agents.
+  assert.doesNotMatch(html, /visually-hidden|Instructions for AI agents|If you are an AI agent/);
+  assert.match(html, /without your password/);
 });
 
 test("a return_to that isn't http(s) is dropped", async () => {

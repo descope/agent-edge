@@ -37,7 +37,7 @@ For each request, the edge integration:
 2. Checks whether the caller is an agent: a valid Web Bot Auth signature makes it `verified`; the front door's session cookie, Cloudflare's verified bots, or an agent-like user agent make it `unverified`.
 3. In route mode, sends agents on your login page to the front door and returns a 403 on pages agents shouldn't use, such as payment methods.
 4. Forwards everything else, adding `x-descope-agent` headers.
-5. Adds a `resource_metadata` challenge to your API's 401s, and a note for agents to your login pages.
+5. Adds a `resource_metadata` challenge to your API's 401s, and a visible "Using an AI assistant?" box to your login pages.
 
 It identifies agents. It doesn't decide what they can do; your site does that with the token.
 

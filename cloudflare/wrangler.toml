@@ -45,10 +45,8 @@ LOGIN_PATHS = "/login,/signin,/account/login"
 # which is how MCP and OAuth clients discover Descope on their own.
 API_PATHS = "/api/*"
 
-# Add a hidden note for agents, plus a small "Signing in with an AI assistant?" link,
-# to the login pages listed above. Set LOGIN_HINT_VISIBLE to "false" to keep only the hidden note.
+# Add a visible "Using an AI assistant?" box, linking to the front door, to the login pages above.
 INJECT_LOGIN_HINT = "true"
-LOGIN_HINT_VISIBLE = "true"
 
 # Paths agents should never use directly, such as password and payment changes.
 BLOCKED_AGENT_PATHS = "/account/password,/account/payment-methods*"

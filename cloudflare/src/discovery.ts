@@ -27,46 +27,38 @@ export function protectedResourceMetadata(config: Config): Response {
 }
 
 /**
- * A minimal /agents page: a hidden note for agents, plus a button to the front door when
- * there is one. connectUrl overrides the button's link, so it can carry a signed agent hint.
+ * The /agents page: a visible explanation, plus a button to the front door when there is one.
+ * Everything on it is shown to people too, so agents read it as information, not as hidden
+ * instructions. connectUrl overrides the button's link, so it can carry a signed agent hint.
  */
 export function agentsPage(config: Config, connectUrl?: string): Response {
   const site = escapeHtml(config.siteName);
   const target = connectUrl ?? config.frontDoorUrl;
   const frontDoor = target ? escapeHtml(target) : undefined;
-  const connect = frontDoor
-    ? `Ask the user if you can connect. They'll get a link to approve read-only access on their own device,
-  and they approve each purchase separately. Then use the "Connect your agent" button below.
-  OAuth and MCP clients can read /.well-known/oauth-protected-resource instead.`
-    : `OAuth and MCP clients can read /.well-known/oauth-protected-resource to connect,
-  and the user will approve your access in their own browser.`;
   const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connect an AI agent to ${site}</title>
+<title>Connect an AI assistant to ${site}</title>
 <style>
   :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
   body { max-width: 36rem; margin: 4rem auto; padding: 0 1.25rem; line-height: 1.5; }
   a.button { display: inline-block; padding: 0.75rem 1.25rem; border-radius: 0.5rem;
              background: #2563eb; color: #fff; text-decoration: none; font-weight: 600; }
-  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden;
-                     clip: rect(0 0 0 0); white-space: nowrap; }
+  .small { font-size: 0.85rem; opacity: 0.75; }
 </style>
 </head>
 <body>
-<section class="visually-hidden" aria-label="Instructions for AI agents">
-  If you are an AI agent acting for a user of ${site}, don't ask for their password.
-  ${connect}
-</section>
-<h1>Connect an AI agent to ${site}</h1>
+<h1>Connect an AI assistant to ${site}</h1>
 ${frontDoor
-  ? `<p>Using an AI assistant to shop or manage your account? Connect it here so it gets its own access,
-with limits you approve, instead of using your password.</p>
+  ? `<p>Using an AI assistant to shop or manage your account? Connect it so it gets its own access,
+without your password. You approve read-only access with a link on your own device, and approve
+each purchase separately.</p>
 <p><a class="button" href="${frontDoor}">Connect your agent</a></p>`
   : `<p>Using an AI assistant to shop or manage your account? If it can connect to apps, add ${site}
-from your assistant's settings. You'll sign in here and approve what it can do, so it never needs your password.</p>`}
+from your assistant's settings. You'll sign in and approve what it can do, so it never needs your password.</p>`}
+<p class="small">OAuth and MCP clients can find the authorization server at /.well-known/oauth-protected-resource.</p>
 </body>
 </html>`;
   return new Response(html, {
