@@ -17,6 +17,8 @@ export interface Env {
   VERIFIED_SCOPES?: string;
   UNVERIFIED_SCOPES?: string;
   TRUSTED_ACCESS?: string;
+  STEP_UP_SECRET?: string;
+  STEP_UP_SCOPE?: string;
   VERIFIED_ACCESS?: string;
   UNVERIFIED_ACCESS?: string;
   STATE_SECRET: string;
@@ -39,6 +41,10 @@ export interface Config {
   scopes: Record<Tier, string>;
   /** What each tier is asking to do, in words the user reads on the consent screen. */
   access: Record<Tier, string>;
+  /** Shared with the store, which signs the order description it sends agents to step-up with. */
+  stepUpSecret?: string;
+  /** The scope a step-up asks for. */
+  stepUpScope: string;
   stateSecret: string;
   hintSigningSecret?: string;
   privateKey?: JsonWebKey & { kid?: string };
@@ -83,6 +89,8 @@ export function loadConfig(env: Env): Config {
       unverified: env.UNVERIFIED_ACCESS || "connect to {site}",
     },
     stateSecret: required("STATE_SECRET", env.STATE_SECRET),
+    stepUpSecret: env.STEP_UP_SECRET || undefined,
+    stepUpScope: env.STEP_UP_SCOPE || "openid orders:write",
     hintSigningSecret: env.HINT_SIGNING_SECRET || undefined,
     privateKey: json("PRIVATE_KEY_JWK", env.PRIVATE_KEY_JWK, undefined),
     clientSecrets: json("CLIENT_SECRETS", env.CLIENT_SECRETS, {}),

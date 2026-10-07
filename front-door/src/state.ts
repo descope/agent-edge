@@ -6,8 +6,11 @@ export interface PendingRequest {
   authReqId: string;
   clientId: string;
   tier: Tier;
+  signatureAgent?: string;
   agentId: string;
   code: string;
+  /** A step-up for one action: its token replaces the access cookie but not the refresh cookie. */
+  stepUp?: boolean;
   returnTo?: string;
   expiresAt: number;
   interval: number;
@@ -56,4 +59,7 @@ export interface RefreshState {
   refreshToken: string;
   clientId: string;
   agentId: string;
+  /** Who the agent is, so a later step-up uses the same client and names the agent the same way. */
+  tier?: Tier;
+  signatureAgent?: string;
 }

@@ -381,3 +381,52 @@ test("a browser request's handle only works with the cookie set on its waiting p
   const withCookie = await call(new Request(statusUrl, { headers: { cookie: bind.split(";")[0] } }));
   assert.equal(((await withCookie.json()) as { status: string }).status, "pending");
 });
+
+const STEP_UP_SECRET = "step-up-secret";
+
+/** Signs a step-up request the way the store does: base64url(JSON) + "." + base64url(HMAC-SHA256). */
+async function stepUpRequest(payload: Record<string, unknown>, secret = STEP_UP_SECRET) {
+  return edgeHint(payload, secret);
+}
+
+test("step-up asks for orders:write with a message naming the order the store signed", async () => {
+  const approved = await approve({ STEP_UP_SECRET, TRUSTED_ACCESS: "view your orders at {site}" });
+  const refreshCookie = cookie(approved, "DSR")!.split(";")[0];
+  const request = await stepUpRequest({ email: "pat@example.com", amount: "$18.95", exp: now() + 300 });
+
+  const response = await call(new Request(
+    `https://front-door.test/step-up?request=${encodeURIComponent(request)}&return_to=${encodeURIComponent("https://shop.test/checkout")}`,
+    { headers: { cookie: refreshCookie } },
+  ), { STEP_UP_SECRET });
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Check your email/);
+
+  const ciba = calls.filter((c) => c.url === BC).at(-1)!;
+  assert.equal(ciba.params.get("client_id"), "client-unverified");
+  assert.equal(ciba.params.get("login_hint"), "pat@example.com");
+  assert.equal(ciba.params.get("scope"), "openid orders:write");
+  assert.match(ciba.params.get("binding_message")!, /^An unverified agent wants to place a \$18\.95 order at Northbound\. Code [A-Z2-9]{6}$/);
+  assert.match(html, /https:\/\/shop.test\/checkout/);
+});
+
+test("step-up rejects a request the store didn't sign, or one that expired", async () => {
+  const forged = await stepUpRequest({ email: "pat@example.com", amount: "$1.00", exp: now() + 300 }, "wrong");
+  const expired = await stepUpRequest({ email: "pat@example.com", amount: "$18.95", exp: now() - 10 });
+  for (const request of [forged, expired, "garbage"]) {
+    const response = await call(new Request(`https://front-door.test/step-up?request=${encodeURIComponent(request)}`), { STEP_UP_SECRET });
+    assert.equal(response.status, 400);
+  }
+  assert.equal(calls.filter((c) => c.url === BC).length, 0);
+});
+
+test("approving a step-up replaces the access cookie but keeps the read-only refresh cookie", async () => {
+  const request = await stepUpRequest({ email: "pat@example.com", amount: "$18.95", exp: now() + 300 });
+  const started = await call(new Request(`https://front-door.test/step-up?request=${encodeURIComponent(request)}`), { STEP_UP_SECRET });
+  const bind = started.headers.getSetCookie().find((c) => c.startsWith("fd_bind="))!.split(";")[0];
+  const handle = (await started.text()).match(/"handle":"([^"]+)"/)![1];
+  tokenAnswers.push({ status: 200, body: { access_token: "write-token", token_type: "Bearer", expires_in: 300, refresh_token: "rt-write" } });
+  const status = await call(new Request(`https://front-door.test/status?handle=${encodeURIComponent(handle)}`, { headers: { cookie: bind } }), { STEP_UP_SECRET });
+  assert.match(cookie(status, "DS")!, /^DS=write-token;/);
+  assert.equal(cookie(status, "DSR"), undefined);
+});

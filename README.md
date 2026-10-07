@@ -123,7 +123,7 @@ CIBA doesn't skip signing in. The approval link opens a Descope flow, the CIBA a
    - **which agent is asking**, and whether its platform was verified
    - **what it will be able to do**: the scopes requested
    - **the binding message**, including the short code the agent also shows the user, so they can check the request is theirs
-   - **any limits in `authorization_details` (RAR)**, such as "up to $200 at Northbound over the next 7 days"
+   - **any limits**, from Rich Authorization Requests (RAR) once your authorization server supports them, such as "up to $200 at Northbound over the next 7 days"
 
    Consent only carries weight when the user can tell what they agreed to, so design this screen to be read, not clicked through.
 3. **Records the decision.** The flow's CIBA Approval step marks the request approved or denied. The agent, which has been polling, gets its token or a refusal.
@@ -147,7 +147,7 @@ Either way, check the signature, issuer, audience, and expiry, and accept Descop
 - **Enforce the limits.** Compare actions against the scopes and `authorization_details` in the token, for example rejecting a checkout above the approved amount with a 403 the agent can relay to the user.
 - **Keep sensitive actions human-only.** Refuse password and payment method changes from any token that has an `act` claim.
 - **Record the agent on every write,** so support can see which actions came from the customer and which came from their agent.
-- **Ask for step-up on high-risk actions.** When an order crosses a threshold, start a new CIBA request for that specific order.
+- **Ask for step-up when the token isn't enough.** If a read-only agent tries to buy, send it to the front door's `/step-up` with a signed description of the order. The user approves that order, and the agent comes back with a token that allows it.
 
 The `x-descope-agent` headers are useful for logging and for treating unauthenticated agent traffic differently. Base authorization decisions on the token, not the headers.
 
@@ -163,4 +163,4 @@ Each platform folder is a self-contained project with its own dependencies, test
 
 ## Front door
 
-[`front-door/`](front-door/) is a reference implementation of the agent front door: a Cloudflare Worker that gets the user's approval with real Descope CIBA requests, signs browser agents in with a session cookie, and shows each agent tier's limits on the consent screen. Deploy it to try the full flow for agents that can't open a browser, and adapt it to your site. Descope's hosted front door will do the same job once it ships. Read [Before production](front-door/README.md#before-production) before putting it in front of real users.
+[`front-door/`](front-door/) is a reference implementation of the agent front door: a Cloudflare Worker that gets the user's approval with real Descope CIBA requests, signs browser agents in with a session cookie, connects agents read-only, and runs step-up approvals when the store needs one for a purchase. Deploy it to try the full flow for agents that can't open a browser, and adapt it to your site. Descope's hosted front door will do the same job once it ships. Read [Before production](front-door/README.md#before-production) before putting it in front of real users.

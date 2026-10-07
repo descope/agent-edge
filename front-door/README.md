@@ -9,7 +9,7 @@ Deploy it to see and test the pattern on your own site, and adapt it as you need
 1. **Shows agents an email form.** `GET /` serves a page with a hidden note for agents and a field for the user's email. Agents without a browser can `POST /connect` with JSON instead.
 2. **Works out who the agent is.** It verifies a Web Bot Auth signature on the request itself, or trusts the edge integration's signed `agent_hint`, or treats the agent as unverified.
 3. **Picks a client for that tier.** Trusted platforms get their own inbound app. Verified agents from other platforms share one client, and unverified agents share another.
-4. **Starts a real CIBA request** against your Descope inbound app. The approval message says who is asking, what they want to do, and a short code that the agent also shows the user, so the user can check that the request is theirs. What each tier asks to do comes from `TRUSTED_ACCESS`, `VERIFIED_ACCESS`, and `UNVERIFIED_ACCESS`, for example "An agent from chatgpt.com wants to place orders up to $200 at Northbound over the next 7 days. Code K7Q2XM".
+4. **Starts a real CIBA request** against your Descope inbound app. The approval message says who is asking, what they want, and a short code that the agent also shows the user, so the user can check that the request is theirs. By default an agent connects read-only (`orders:read`), and the message says so: "An unverified agent wants to view your orders at Northbound. Code K7Q2XM".
 5. **Waits for approval.** The waiting page, or an agent calling `GET /status`, polls Descope until the user approves or declines, then returns the access token. The refresh token stays with the front door.
 
 Each request also gets an agent ID (`agt_...`) that's logged with every event, so requests on the shared clients can be told apart.
@@ -104,21 +104,18 @@ curl "http://localhost:8788/status?handle=<handle from the response>"
 | `GET /status?handle=...` | Polls Descope. Returns `pending` with the `interval` to wait, `approved` with the access token, `denied`, `expired`, or `error`. If Descope asks it to slow down, `pending` also includes a new `handle` with a longer interval; use it for later polls. Returns `403` if called from a different client than the one that started the request. |
 | `GET /jwks.json` | The front door's public key, for registering `private_key_jwt` with your inbound apps. |
 | `GET` or `POST /refresh` | Uses the `DSR` cookie to get a new access token and set a new `DS` cookie. `GET` with `return_to` redirects back; `POST` returns JSON. |
+| `GET /step-up?request=...&return_to=...` | Starts a step-up for one action the store signed, such as a purchase on a read-only connection. Returns the waiting page. On approval, replaces the access cookie with a token that has `STEP_UP_SCOPE`. |
 
-## Spending limits, until Descope supports RAR
+## Step-up for purchases
 
-With Rich Authorization Requests (RFC 9396), the agent would ask for a specific limit, the user would approve that exact amount, and Descope would put it in the token. Until Descope supports RAR, the front door approximates it per tier:
+Agents connect read-only, and step up when they try to buy something. Agent platforms such as Muse already ask the user before every purchase, but the store can't see that prompt or check that it happened. Step-up gives the store an approval it can verify, at the moment the agent tries to do more than it was granted.
 
-- **Descope sets the limit.** Each tier's inbound app adds a fixed `authorization_details` claim, shaped the way RAR would, with a JWT template or the Custom Claims action in the approval flow:
+1. **The store refuses and sends the agent here.** When an agent whose token lacks `orders:write` places an order, the store redirects it to `/step-up?request=...&return_to=...`. The `request` describes the order, `{ email, amount, exp }`, and is signed with `STEP_UP_SECRET`, which the store and front door share. The agent can't change what the user will see.
+2. **The front door asks Descope.** It starts a CIBA request for `STEP_UP_SCOPE` (`openid orders:write`), using the same client as the agent's original connection, with a message naming the order: "An unverified agent wants to place a $18.95 order at Northbound. Code K7Q2XM".
+3. **The user approves on their own device,** and the front door replaces the agent's access cookie with the new token. The refresh cookie from the original read-only connection stays as it is.
+4. **The agent goes back to checkout** and places the order. This time the token has `orders:write`.
 
-  ```json
-  [{ "type": "purchase", "max_amount": { "value": "200.00", "currency": "USD" }, "period": "P7D" }]
-  ```
-
-- **The user sees it.** The tier's `*_ACCESS` text puts the same limit in the approval message on the consent screen. Keep the two in step.
-- **The store enforces it.** Northbound's checkout rejects an agent's order above `max_amount`, and refuses orders from agents whose token has no purchase limit.
-
-The difference from real RAR: the limit is fixed for each tier, so the user can approve or decline it but not change it. When Descope supports RAR, the claim comes from the user's approval instead, and the store's check doesn't change.
+The approval message shows the exact amount, but the token only carries the scope. That's why the `orders:write` token should be short-lived, set in Descope, so one approval covers about one purchase. Rich Authorization Requests (RFC 9396) would put the exact amount in the token, and the store could check it.
 
 ## Protections built in
 
@@ -132,7 +129,7 @@ These are still open. Close the ones that matter for your site before putting th
 
 - **Replay protection for Web Bot Auth.** There's no nonce cache, so a captured signed request could be replayed within its validity window. Key directory signatures aren't verified either.
 - **IP binding for JSON clients.** An agent whose outgoing IP changes between `/connect` and `/status` (some cloud platforms rotate addresses) gets a `403` and has to start again. Bind to the agent's Web Bot Auth key instead if that's a problem for you.
-- **Spending limits are fixed per tier,** not true RAR, and the store has to track the `period` itself.
+- **A step-up approves a scope, not an amount.** Keep the `orders:write` token short-lived until RAR can carry the exact order.
 - **The agent ID isn't in the token** unless Descope is set up to add it as a custom claim. It's always in the front door's logs.
 - **Agents calling your API directly can't refresh.** The refresh token only lives in the browser cookie, so they get a new token by connecting again.
 - **No sign-out or revocation endpoint** yet for clearing the cookies and revoking the tokens.

@@ -1,7 +1,7 @@
 import { loadConfig, type Config, type Env, type RateLimiter, type Tier } from "./config";
 import { pollToken, refreshTokens, startCiba, type TokenSet } from "./descope";
 import { base64Url, randomCode, utf8 } from "./encoding";
-import { verifyHint } from "./hint";
+import { verifyHint, verifySigned } from "./hint";
 import { connectPage, waitingPage } from "./pages";
 import { seal, unseal, type PendingRequest, type RefreshState } from "./state";
 import { verifiedSignatureAgent } from "./webBotAuth";
@@ -30,6 +30,7 @@ export default {
       if (request.method === "POST" && url.pathname === "/connect") return await connect(request, env, config);
       if (request.method === "GET" && url.pathname === "/status") return await status(request, url, config);
       if (request.method === "GET" && url.pathname === "/jwks.json") return jwks(config);
+      if (request.method === "GET" && url.pathname === "/step-up") return await stepUp(request, url, config);
       if ((request.method === "GET" || request.method === "POST") && url.pathname === "/refresh") {
         return await refresh(request, url, config);
       }
@@ -86,6 +87,7 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
     authReqId: ciba.authReqId,
     clientId,
     tier: agent.tier,
+    signatureAgent: agent.signatureAgent,
     agentId,
     code,
     returnTo,
@@ -143,7 +145,12 @@ async function status(request: Request, url: URL, config: Config): Promise<Respo
   if (result.status === "approved") {
     const { refresh_token: refreshToken, ...token } = result.token;
     const response = json({ status: "approved", agent_id: pending.agentId, ...token });
-    await setSessionCookies(response, url, config, result.token, refreshToken && { refreshToken, clientId: pending.clientId, agentId: pending.agentId });
+    // A step-up's token is for one action, so it replaces the access cookie but leaves the
+    // refresh cookie from the original connection alone.
+    const refreshState = pending.stepUp || !refreshToken ? undefined : {
+      refreshToken, clientId: pending.clientId, agentId: pending.agentId, tier: pending.tier, signatureAgent: pending.signatureAgent,
+    };
+    await setSessionCookies(response, url, config, result.token, refreshState);
     return response;
   }
   return json(result);
@@ -212,6 +219,55 @@ async function refresh(request: Request, url: URL, config: Config): Promise<Resp
   // Keep the old refresh token unless Descope rotated it.
   await setSessionCookies(response, url, config, token, { ...state, refreshToken: token.refresh_token ?? state.refreshToken });
   return response;
+}
+
+/**
+ * Step-up for one action the agent's token doesn't allow, such as a purchase on a read-only
+ * connection. The store sends the agent here with a signed description of the action, so the
+ * approval message shows exactly what the store will do, and the agent can't change it.
+ */
+async function stepUp(request: Request, url: URL, config: Config): Promise<Response> {
+  if (!config.stepUpSecret) return json({ error: "not_found" }, 404);
+  const action = await verifySigned<{ email: string; amount: string; exp: number }>(
+    url.searchParams.get("request") ?? "", config.stepUpSecret,
+  );
+  if (!action || !EMAIL.test(action.email) || !/^\$\d+(\.\d{2})?$/.test(action.amount)) {
+    return json({ error: "invalid_request", message: "This approval link is invalid or expired. Go back and try again." }, 400);
+  }
+
+  // The agent's original connection says which client to use and how to name it.
+  const name = config.cookies?.refresh ?? "DSR";
+  const raw = (request.headers.get("cookie") ?? "").split(/;\s*/)
+    .find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1);
+  const connected = raw ? await unseal<RefreshState>(raw, config.stateSecret) : undefined;
+  const agent: Agent = connected?.tier
+    ? { tier: connected.tier, signatureAgent: connected.signatureAgent, source: "none" }
+    : await identify(request, undefined, config);
+  const clientId = connected?.clientId
+    ?? (agent.tier === "trusted" ? config.clients.trusted[agent.signatureAgent!] : config.clients[agent.tier]);
+  const agentId = connected?.agentId ?? `agt_${randomCode(16, "abcdefghijkmnpqrstuvwxyz23456789")}`;
+  const code = randomCode(6);
+  const returnTo = safeReturnTo(url.searchParams.get("return_to"));
+
+  const ciba = await startCiba(config, {
+    clientId,
+    email: action.email,
+    scope: config.stepUpScope,
+    bindingMessage: `${agentLabel(agent)} wants to place a ${action.amount} order at ${config.siteName}. Code ${code}`,
+  });
+  const bindToken = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const pending: PendingRequest = {
+    authReqId: ciba.authReqId, clientId, tier: agent.tier, signatureAgent: agent.signatureAgent, agentId, code, returnTo,
+    expiresAt: Date.now() + ciba.expiresIn * 1000, interval: ciba.interval, stepUp: true,
+    binding: { cookieHash: await sha256(bindToken) },
+  };
+  const handle = await seal(pending, config.stateSecret);
+  console.log(JSON.stringify({ event: "step_up_started", agent_id: agentId, tier: agent.tier, client_id: clientId, amount: action.amount }));
+
+  const page = waitingPage(config.siteName, { handle, code, interval: ciba.interval, returnTo, cookies: Boolean(config.cookies) });
+  const secure = url.protocol === "https:" ? "; Secure" : "";
+  page.headers.append("set-cookie", `${BIND_COOKIE}=${bindToken}; Path=/status; Max-Age=${ciba.expiresIn}; HttpOnly${secure}; SameSite=Strict`);
+  return page;
 }
 
 interface Agent {
