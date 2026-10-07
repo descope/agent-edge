@@ -19,7 +19,7 @@ When an AI agent reaches a login page today, it asks the user for their password
 flowchart LR
   agent[AI agent] --> edge[Edge integration]
   edge -- "discovery files" --> agent
-  edge -. "login page: redirect (coming soon)" .-> door[Descope front door]
+  edge -- "login page: redirect" --> door[Front door]
   edge -- "everything else, with agent headers" --> site[Your site]
   site -- "401 from API" --> edge
   edge -- "401 + resource_metadata" --> agent
@@ -71,9 +71,7 @@ sequenceDiagram
   S-->>A: 200
 ```
 
-### Agents that can't open a browser (coming soon)
-
-> This path needs the Descope-hosted front door, which isn't available yet. The diagram shows how it will work.
+### Agents that can't open a browser
 
 Computer use agents in a cloud VM and agents people reach over text message can't send the user to a sign-in page. They go through the front door, which asks the user for approval on their own device with CIBA.
 
@@ -163,4 +161,4 @@ Each platform folder is a self-contained project with its own dependencies, test
 
 ## Front door
 
-[`front-door/`](front-door/) is a reference implementation of the agent front door: a Cloudflare Worker that gets the user's approval with real Descope CIBA requests, signs browser agents in with a session cookie, connects agents read-only, and runs step-up approvals when the store needs one for a purchase. Deploy it to try the full flow for agents that can't open a browser, and adapt it to your site. Descope's hosted front door will do the same job once it ships. Read [Before production](front-door/README.md#before-production) before putting it in front of real users.
+[`front-door/`](front-door/) is a reference implementation of the agent front door: a Cloudflare Worker that gets the user's approval with real Descope CIBA requests, signs browser agents in with a session cookie, connects agents read-only, and runs step-up approvals when the store needs one for a purchase. A hosted front door is coming soon from Descope.

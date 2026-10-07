@@ -2,7 +2,7 @@
 
 A reference implementation of the agent front door: where agents that can't open a browser go to get a user's approval. It runs as a Cloudflare Worker and makes **real** Descope CIBA requests. The user gets a real approval email, signs in with their normal login, and sees the real consent screen. The agent gets a real Descope token.
 
-Deploy it to see and test the pattern on your own site, and adapt it as you need. Descope is building a hosted front door that does the same job; when it ships, you can switch to it and retire this one. Before you put this in front of real users, read [Before production](#before-production).
+A hosted front door is coming soon from Descope.
 
 ## What it does
 

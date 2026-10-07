@@ -4,7 +4,7 @@ import { loadConfig, type Env } from "../src/config";
 import { agentsPage, authMd } from "../src/discovery";
 import worker from "../src/index";
 
-// The hosted front door isn't available yet, so everything else has to work without it.
+// Without a front door configured, everything else still has to work.
 const env: Env = {
   DESCOPE_ISSUER: "https://api.descope.com/P123",
   RESOURCE_URL: "https://example.com/api",

@@ -2,7 +2,7 @@ export interface Env {
   MODE?: string;
   SITE_NAME?: string;
   DESCOPE_ISSUER: string;
-  /** The hosted agent front door. Optional until it's available. */
+  /** The agent front door. Optional. */
   FRONT_DOOR_URL?: string;
   RESOURCE_URL: string;
   SCOPES_SUPPORTED?: string;
