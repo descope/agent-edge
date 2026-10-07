@@ -94,6 +94,7 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
   const scope = config.scopes[agent.tier];
 
   let started: { requestId: string; code: string; expiresIn: number; interval: number; device?: { verificationUri: string; verificationUriComplete?: string } };
+  try {
   if (flow === "device") {
     // The inbound app's name is what the consent screen shows, so name each tier's app for it.
     const device = await startDevice(config, { clientId, scope, loginHint: EMAIL.test(email) ? email : undefined });
@@ -111,6 +112,16 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
       bindingMessage: `${agentLabel(agent)} wants to ${config.access[agent.tier].replaceAll("{site}", config.siteName)}. Code ${code}`,
     });
     started = { requestId: ciba.authReqId, code, expiresIn: ciba.expiresIn, interval: ciba.interval };
+  }
+  } catch (error) {
+    // Descope refused (for example, a scope it doesn't know). Log the reason; show the agent
+    // a plain message instead of a server error.
+    console.error(JSON.stringify({ event: "connect_failed", flow, client_id: clientId, error: String(error) }));
+    const message = "This site can't connect agents right now. Try again later.";
+    const response = wantsJson
+      ? json({ error: "connect_failed", message }, 502)
+      : connectPage(config.siteName, { returnTo, agentHint }, message, options);
+    return withHeaders(response, {}, 502);
   }
 
   const pending: PendingRequest = {
@@ -295,12 +306,18 @@ async function stepUp(request: Request, url: URL, config: Config): Promise<Respo
   const code = randomCode(6);
   const returnTo = safeReturnTo(url.searchParams.get("return_to"));
 
-  const ciba = await startCiba(config, {
-    clientId,
-    email: action.email,
-    scope: config.stepUpScope,
-    bindingMessage: `${agentLabel(agent)} wants to place a ${action.amount} order at ${config.siteName}. Code ${code}`,
-  });
+  let ciba: Awaited<ReturnType<typeof startCiba>>;
+  try {
+    ciba = await startCiba(config, {
+      clientId,
+      email: action.email,
+      scope: config.stepUpScope,
+      bindingMessage: `${agentLabel(agent)} wants to place a ${action.amount} order at ${config.siteName}. Code ${code}`,
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "step_up_failed", client_id: clientId, error: String(error) }));
+    return json({ error: "step_up_failed", message: "We couldn't send the approval request. Go back and try again later." }, 502);
+  }
   const bindToken = base64Url(crypto.getRandomValues(new Uint8Array(32)));
   const pending: PendingRequest = {
     authReqId: ciba.authReqId, clientId, tier: agent.tier, signatureAgent: agent.signatureAgent, agentId, code, returnTo,

@@ -310,7 +310,7 @@ test("a rejected refresh clears the cookies", async () => {
   assert.match(cookie(response, "DSR")!, /Max-Age=0/);
 });
 
-test("Descope's own error format is reported, not just the status code", async () => {
+test("Descope's own error format is logged, not shown to the agent", async () => {
   const real = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input) === BC) {
@@ -318,10 +318,19 @@ test("Descope's own error format is reported, not just the status code", async (
     }
     return real(input, init);
   }) as typeof fetch;
-  const response = await connectJson({ email: "pat@example.com" });
-  const body = (await response.json()) as { message: string };
-  assert.match(body.message, /E074130/);
-  assert.match(body.message, /Invalid client id/);
+  const logged: string[] = [];
+  const realError = console.error;
+  console.error = (line: string) => { logged.push(String(line)); };
+  try {
+    const response = await connectJson({ email: "pat@example.com" });
+    const body = (await response.json()) as { message: string };
+    assert.doesNotMatch(body.message, /E074130/);
+  } finally {
+    console.error = realError;
+  }
+  const entry = logged.find((l) => l.includes("connect_failed"))!;
+  assert.match(entry, /E074130/);
+  assert.match(entry, /Invalid client id/);
 });
 
 test("each tier's access description goes in the approval message, with {site} filled in", async () => {
@@ -530,4 +539,41 @@ test("the connect page leads with a sign-in link, with the email form as the fal
   const deviceOnly = await (await call(new Request("https://front-door.test/"), { CIBA_FALLBACK: "false" })).text();
   assert.match(deviceOnly, /Get a sign-in link/);
   assert.doesNotMatch(deviceOnly, /name="email"/);
+});
+
+test("RESOURCE is sent on the connect, step-up, and token requests", async () => {
+  deviceFlow = true;
+  const resource = { RESOURCE: "https://northbound.camp/agent_resource" };
+  const { handle } = (await (await postJson({}, resource)).json()) as { handle: string };
+  await postJson({ email: "pat@example.com" }, resource);
+  tokenAnswers.push({ status: 400, body: { error: "authorization_pending" } });
+  await call(new Request(`https://front-door.test/status?handle=${encodeURIComponent(handle)}`), resource);
+
+  for (const url of [DEVICE, BC, TOKEN]) {
+    assert.equal(calls.find((c) => c.url === url)!.params.get("resource"), "https://northbound.camp/agent_resource", url);
+  }
+});
+
+test("without RESOURCE, no resource parameter is sent", async () => {
+  await postJson({ email: "pat@example.com" });
+  assert.equal(calls.find((c) => c.url === BC)!.params.get("resource"), null);
+});
+
+test("when Descope rejects a connection, agents get a clear message instead of a server error", async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === BC) return Response.json({ errorCode: "E011003", errorMessage: "invalid scope" }, { status: 400 });
+    return real(input, init);
+  }) as typeof fetch;
+
+  const json = await postJson({ email: "pat@example.com" });
+  assert.equal(json.status, 502);
+  const body = (await json.json()) as { error: string; message: string };
+  assert.equal(body.error, "connect_failed");
+  assert.doesNotMatch(body.message, /E011003|invalid scope/);
+
+  const page = await call(new Request("https://front-door.test/connect", { method: "POST", body: new URLSearchParams({ email: "pat@example.com" }) }));
+  const html = await page.text();
+  assert.match(html, /can(?:'|&#39;)t connect agents right now/);
+  assert.doesNotMatch(html, /E011003|invalid scope/);
 });

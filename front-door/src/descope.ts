@@ -66,6 +66,11 @@ export async function clientAssertion(jwk: JsonWebKey & { kid?: string }, client
   return `${input}.${base64Url(new Uint8Array(signature))}`;
 }
 
+/** The resource parameter (RFC 8707), when one is configured. */
+function resourceParam(config: Config): Record<string, string> {
+  return config.resource ? { resource: config.resource } : {};
+}
+
 async function post(url: string, params: Record<string, string>): Promise<{ status: number; body: Record<string, unknown> }> {
   const response = await fetch(url, {
     method: "POST",
@@ -103,6 +108,7 @@ export async function startCiba(
   const { status, body } = await post(endpoint, {
     ...(await clientAuth(config, request.clientId, endpoint, discovery.issuer)),
     scope: request.scope,
+    ...resourceParam(config),
     login_hint: request.email,
     binding_message: request.bindingMessage,
   });
@@ -155,6 +161,7 @@ export async function startDevice(
   const { status, body } = await post(endpoint, {
     ...(await clientAuth(config, request.clientId, endpoint, discovery.issuer)),
     scope: request.scope,
+    ...resourceParam(config),
     // Not part of RFC 8628, but some servers use it to pre-fill sign-in.
     ...(request.loginHint ? { login_hint: request.loginHint } : {}),
   });
@@ -186,6 +193,7 @@ export async function pollToken(config: Config, clientId: string, requestId: str
     ...(flow === "device"
       ? { grant_type: DEVICE_GRANT, device_code: requestId }
       : { grant_type: CIBA_GRANT, auth_req_id: requestId }),
+    ...resourceParam(config),
   });
   if (status === 200 && typeof body.access_token === "string") return { status: "approved", token: tokenSet(body) };
   switch (body.error) {
@@ -211,6 +219,7 @@ export async function refreshTokens(config: Config, clientId: string, refreshTok
     ...(await clientAuth(config, clientId, endpoint, discovery.issuer)),
     grant_type: "refresh_token",
     refresh_token: refreshToken,
+    ...resourceParam(config),
   });
   return status === 200 && typeof body.access_token === "string" ? tokenSet(body) : undefined;
 }

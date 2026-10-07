@@ -68,9 +68,14 @@ sequenceDiagram
 1. **Create an inbound app** for unverified agents, and name it for what the user should see, such as "Unverified agent".
    - Turn on the **device authorization flow**. The front door offers sign-in links only when the app's discovery document lists a `device_authorization_endpoint`.
    - Turn on **CIBA** for step-up and the email fallback. Pick an email connector and template, and the flow that runs when the user opens the approval link. That flow signs the user in and shows the consent screen. See [What the user sees when approving](../README.md#what-the-user-sees-when-approving).
-2. **Optionally create more inbound apps:** one shared app for verified agents from unknown platforms, and one for each platform you trust.
-3. **Copy the inbound app's Discovery URL** from the Descope Console. The front door reads the device, CIBA, and token endpoints from it.
-4. **Choose how the front door authenticates:**
+2. **Define the scopes the front door asks for,** on a resource (for example `https://example.com/agent_resource`) or on the inbound app. Their descriptions are what customers read on the consent screen.
+   - `orders:read`, such as "View your orders", requested when an agent connects.
+   - `orders:write`, such as "Place an order for you", requested only at step-up. Give these tokens a short lifetime, so one approval covers about one purchase.
+
+   Make sure tokens include `email` (to find the customer) and `act` with the agent in `act.sub`. If the scopes belong to a resource, set `RESOURCE` to it, so the front door sends it with each request. If the front door asks for a scope Descope doesn't know, agents see "This site can't connect agents right now" and the reason is in the front door's logs.
+3. **Optionally create more inbound apps:** one shared app for verified agents from unknown platforms, and one for each platform you trust.
+4. **Copy the inbound app's Discovery URL** from the Descope Console. The front door reads the device, CIBA, and token endpoints from it.
+5. **Choose how the front door authenticates:**
    - **`private_key_jwt` (preferred).** It's available on request, so ask Descope to turn it on for your project. Run `npm run generate-key` and save the output as `PRIVATE_KEY_JWK`. Then register the front door's public key with each inbound app, either by pointing the app at `https://<front door>/jwks.json` or by pasting the key.
    - **Client secrets.** Set `CLIENT_SECRETS` to a JSON map from each client ID to its secret.
 
