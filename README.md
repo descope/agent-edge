@@ -16,7 +16,7 @@ Integrations start in monitor mode and fail open, so they can be deployed safely
 | Folder | What it is |
 | --- | --- |
 | [`cloudflare/`](cloudflare/) | The edge integration: a Cloudflare Worker you put in front of your site |
-| [`front-door/`](front-door/) | The front door: where agents get the customer's approval through Descope, with the device flow or CIBA. A reference implementation for trying the flow. |
+| [`front-door/`](front-door/) | An example front door, deployed to protect [Northbound](https://github.com/descope-sample-apps/northbound-sample-app): where agents get the customer's approval through Descope, with the device flow or CIBA |
 
 Vercel and Amazon CloudFront integrations are coming soon. Each folder is a self-contained project with its own README.
 

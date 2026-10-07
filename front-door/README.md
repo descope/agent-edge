@@ -1,8 +1,6 @@
 # Agent front door
 
-A reference implementation of the agent front door: where agents that can't open a browser go to get a user's approval. It runs as a Cloudflare Worker and uses Descope as the authorization server. Agents connect with the device flow, or with CIBA as a fallback. The user approves on their own device, on a real Descope consent screen, and the agent gets a real Descope token.
-
-It's for trying the flow, not for production.
+An example implementation of the agent front door, deployed to protect [Northbound](https://github.com/descope-sample-apps/northbound-sample-app). It shows roughly how a front door serves Descope to an agent. It's where agents that can't open a browser go to get the customer's approval, with the device flow or CIBA, before getting a Descope token.
 
 > [!NOTE]
 > A hosted front door is coming soon from Descope.
