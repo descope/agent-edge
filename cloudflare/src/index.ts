@@ -82,7 +82,7 @@ export default {
     }
 
     if (action === "redirect") return redirectToFrontDoor(agent, config, url);
-    if (action === "block") return blocked(url);
+    if (action === "block") return blocked(request, config);
 
     // Forward to the origin with trustworthy agent headers.
     const forwarded = withoutAgentHeaders(request);
@@ -158,13 +158,22 @@ async function connectUrl(agent: AgentResult, config: Config, url: URL): Promise
   return target.toString();
 }
 
-function blocked(url: URL): Response {
-  return Response.json(
-    {
-      error: "agent_not_allowed",
-      message: "AI agents can't use this page directly. See agents_url for how to connect to this account.",
-      agents_url: `${url.origin}/agents`,
-    },
-    { status: 403, headers: { "cache-control": "no-store" } },
-  );
+/**
+ * Pages agents may never use, such as payment methods. The customer has to make these changes
+ * themselves, so the message says that plainly, and doesn't send the agent anywhere else.
+ */
+function blocked(request: Request, config: Config): Response {
+  const message = `AI agents can't use this page. It's only for the customer: ask them to make this change themselves, signed in to ${config.siteName} on their own device.`;
+  const headers = { "cache-control": "no-store" };
+  if ((request.headers.get("accept") ?? "").includes("text/html")) {
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Only the customer can do this</title></head>` +
+      `<body style="font-family:system-ui,sans-serif;max-width:36rem;margin:4rem auto;padding:0 1.25rem;line-height:1.5">` +
+      `<h1>Only the customer can do this</h1><p>${escapeHtml(message)}</p></body></html>`;
+    return new Response(html, { status: 403, headers: { ...headers, "content-type": "text/html; charset=utf-8" } });
+  }
+  return Response.json({ error: "agent_not_allowed", message }, { status: 403, headers });
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }

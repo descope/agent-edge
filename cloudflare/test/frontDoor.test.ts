@@ -164,3 +164,26 @@ test("auth.md isn't served by the worker; requests for it go to the site", async
   }
   assert.deepEqual(forwarded, ["https://example.com/auth.md", "https://example.com/.well-known/auth.md"]);
 });
+
+test("a blocked page tells the agent the customer has to do it, without pointing to /agents", async () => {
+  globalThis.fetch = (async () => new Response("ok")) as typeof fetch;
+  const blockedEnv = { ...env, BLOCKED_AGENT_PATHS: "/account/payment-methods*" };
+  const agentHeaders = { "user-agent": "HeadlessChrome/126.0" };
+
+  const api = await worker.fetch(new Request("https://example.com/account/payment-methods", { headers: agentHeaders }) as never, blockedEnv, ctx);
+  assert.equal(api.status, 403);
+  const body = (await api.json()) as Record<string, string>;
+  assert.equal(body.error, "agent_not_allowed");
+  assert.match(body.message, /customer/);
+  assert.match(body.message, /their own device/);
+  assert.equal(body.agents_url, undefined);
+
+  const page = await worker.fetch(new Request("https://example.com/account/payment-methods", {
+    headers: { ...agentHeaders, accept: "text/html,application/xhtml+xml" },
+  }) as never, blockedEnv, ctx);
+  assert.equal(page.status, 403);
+  assert.match(page.headers.get("content-type") ?? "", /text\/html/);
+  const html = await page.text();
+  assert.match(html, /their own device/);
+  assert.doesNotMatch(html, /\/agents/);
+});
