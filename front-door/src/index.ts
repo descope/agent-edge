@@ -48,7 +48,7 @@ async function connectOptions(config: Config): Promise<{ device: boolean; ciba: 
 }
 
 /**
- * Starts a connection. The device flow is the main path: the agent gets a link and code to
+ * Starts a connection. The device flow is the main path: the agent gets a link to
  * give the user, and nobody is sent anything they didn't ask for. Sending an email starts
  * CIBA instead, for agents that can't pass on a link; it's rate limited per address.
  */
@@ -71,7 +71,7 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
       ? "Sign-in codes aren't available here. Enter the user's email address to send them an approval email."
       : "This front door can't connect agents right now.");
   }
-  if (flow === "ciba" && !options.ciba) return refuse("Approval emails are turned off. Get a sign-in code instead.");
+  if (flow === "ciba" && !options.ciba) return refuse("Approval emails are turned off. Get a sign-in link instead.");
   if (flow === "ciba" && !EMAIL.test(email)) return refuse("Enter a valid email address.");
 
   // Checked before anything reaches Descope, so the front door can't be used to flood
@@ -163,8 +163,10 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
     status_url: `${new URL(request.url).origin}/status?handle=${encodeURIComponent(handle)}`,
     interval: started.interval,
     expires_in: started.expiresIn,
-    message: started.device
-      ? `Ask the user to open ${link} and approve. If they open ${started.device.verificationUri}, they enter the code ${started.code}.`
+    message: started.device?.verificationUriComplete
+      ? `Ask the user to open ${link} and approve. It should show the code ${started.code}.`
+      : started.device
+      ? `Ask the user to open ${link}, enter the code ${started.code}, and approve.`
       : `Ask the user to approve the request in their email if it shows the code ${started.code}.`,
   });
 }

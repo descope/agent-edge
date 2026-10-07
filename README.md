@@ -85,7 +85,7 @@ sequenceDiagram
 
 ### Agents that can't open a browser
 
-Computer use agents in a cloud VM and agents people reach over text message can't send the user to a sign-in page. They go through the front door. By default it uses the device flow: the agent gets a link and a short code from Descope, gives them to the user, and the user approves on their own device. Agents that can't pass on a link can send the user's email instead, and Descope emails the user an approval request (CIBA).
+Computer use agents in a cloud VM and agents people reach over text message can't send the user to a sign-in page. They go through the front door. By default it uses the device flow: the agent gets a link from Descope, gives it to the user, and the user approves on their own device. Agents that can't pass on a link can send the user's email instead, and Descope emails the user an approval request (CIBA).
 
 ```mermaid
 sequenceDiagram
@@ -99,12 +99,12 @@ sequenceDiagram
   A->>E: GET /login, signed with Web Bot Auth
   E->>E: Verify the signature against the platform's key directory
   E-->>A: 302 to the front door with return_to and agent_hint
-  A->>F: Get a sign-in code
+  A->>F: Get a sign-in link
   F->>F: Pick the client: trusted platform, unknown platform, or unverified
   F->>D: Device authorization request
   D-->>F: device_code, plus a link and user code
-  F-->>A: Waiting page with the link and code
-  A->>U: "Open this link and enter WDJB-MJHT"
+  F-->>A: Waiting page with the link
+  A->>U: "Open this link to approve"
   U->>D: Signs in and approves on the consent screen
   loop Until the user approves or declines
     A->>F: Waiting page checks the status

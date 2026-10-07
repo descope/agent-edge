@@ -11,7 +11,7 @@ interface Discovery {
 const CIBA_GRANT = "urn:openid:params:grant-type:ciba";
 const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 
-/** How a pending request is approved: CIBA (an approval email) or the device flow (a code the user enters). */
+/** How a pending request is approved: CIBA (an approval email) or the device flow (a link the user opens). */
 export type Flow = "ciba" | "device";
 
 let discoveryCache: { url: string; value: Discovery } | undefined;
@@ -144,7 +144,7 @@ export interface DeviceStart {
   interval: number;
 }
 
-/** Starts a device flow (RFC 8628). Nothing is sent to the user: the agent passes the link and code on. */
+/** Starts a device flow (RFC 8628). Nothing is sent to the user: the agent passes the link on. */
 export async function startDevice(
   config: Config,
   request: { clientId: string; scope: string; loginHint?: string },

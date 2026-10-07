@@ -42,18 +42,18 @@ export function connectPage(
   ].join("");
   const agentSteps = [
     options.device
-      ? `Press "Get a sign-in code", then give the user the link and code on the next page. They approve your access on their own device.`
+      ? `Press "Get a sign-in link", then give the user the link on the next page. They approve your access on their own device.`
       : "",
     options.ciba
       ? `${options.device ? "If you can't give the user a link, enter" : "Enter"} their email address instead, and they'll get an email asking them to approve.`
       : "",
-    `Agents without a browser can POST JSON to /connect: ${options.device ? `{} for a sign-in code` : ""}${options.device && options.ciba ? ", or " : ""}${options.ciba ? `{"email": "..."} for an approval email` : ""}. Then poll the status_url in the response.`,
+    `Agents without a browser can POST JSON to /connect: ${options.device ? `{} for a sign-in link` : ""}${options.device && options.ciba ? ", or " : ""}${options.ciba ? `{"email": "..."} for an approval email` : ""}. Then poll the status_url in the response.`,
   ].filter(Boolean).join("\n  ");
   const codeForm = options.device ? `
 <form method="post" action="/connect">
   <input type="hidden" name="flow" value="device">
   ${hidden}
-  <button type="submit">Get a sign-in code</button>
+  <button type="submit">Get a sign-in link</button>
 </form>` : "";
   const emailForm = options.ciba ? `
 ${options.device ? "<p>Can't pass on a link? Send the person an approval email instead.</p>" : "<p>Enter the email address of the person you're acting for. They'll get an email asking them to approve.</p>"}
@@ -69,7 +69,7 @@ ${options.device ? "<p>Can't pass on a link? Send the person an approval email i
   ${agentSteps}
 </section>
 <h1>Connect an AI agent to ${s}</h1>
-${options.device ? "<p>Get a code for the person you're acting for. They open a link, enter the code, and approve your access on their own device.</p>" : ""}
+${options.device ? "<p>Get a sign-in link for the person you're acting for. They open it and approve your access on their own device.</p>" : ""}
 ${error ? `<p role="alert"><strong>${escapeHtml(error)}</strong></p>` : ""}
 ${codeForm}
 ${emailForm}`);
@@ -141,14 +141,26 @@ setTimeout(check, cfg.interval * 1000);
 }
 
 function deviceInstructions(code: string, device: { verificationUri: string; verificationUriComplete?: string }): string {
-  const link = escapeHtml(device.verificationUriComplete ?? device.verificationUri);
-  const plain = escapeHtml(device.verificationUri);
-  return `<section class="visually-hidden" aria-label="Instructions for AI agents">
+  const c = escapeHtml(code);
+  // Descope can put the code in the link, so the user only opens it. Typing the code is the fallback.
+  if (device.verificationUriComplete) {
+    const link = escapeHtml(device.verificationUriComplete);
+    return `<section class="visually-hidden" aria-label="Instructions for AI agents">
   Give the user this link: ${link}
-  If they open ${plain} instead, they enter the code ${escapeHtml(code)}. They approve on their own device.
+  They open it and approve on their own device. It should show the code ${c}.
   This page updates on its own once they approve.
 </section>
 <h1>Approve on your device</h1>
-<p>Open <a href="${link}">${plain}</a> and enter this code:</p>
-<p class="code">${escapeHtml(code)}</p>`;
+<p><a href="${link}">Open this link to approve</a>. It should show this code:</p>
+<p class="code">${c}</p>`;
+  }
+  const link = escapeHtml(device.verificationUri);
+  return `<section class="visually-hidden" aria-label="Instructions for AI agents">
+  Give the user this link: ${link}
+  They open it and enter the code ${c}, then approve on their own device.
+  This page updates on its own once they approve.
+</section>
+<h1>Approve on your device</h1>
+<p>Open <a href="${link}">${link}</a> and enter this code:</p>
+<p class="code">${c}</p>`;
 }

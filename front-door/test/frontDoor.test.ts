@@ -458,7 +458,7 @@ test("with no email, /connect starts a device flow and returns the link and code
   assert.equal(data.user_code, "WDJB-MJHT");
   assert.equal(data.verification_uri, "https://auth.test/device");
   assert.equal(data.verification_uri_complete, "https://auth.test/device?user_code=WDJB-MJHT");
-  assert.match(data.message, /WDJB-MJHT/);
+  assert.equal(data.message, "Ask the user to open https://auth.test/device?user_code=WDJB-MJHT and approve. It should show the code WDJB-MJHT.");
   assert.ok(data.handle);
 
   const device = calls.find((c) => c.url === DEVICE)!;
@@ -492,8 +492,9 @@ test("a browser asking for a code gets a page with the link and code to give the
   deviceFlow = true;
   const response = await call(new Request("https://front-door.test/connect", { method: "POST", body: new URLSearchParams({ flow: "device" }) }));
   const html = await response.text();
-  assert.match(html, /WDJB-MJHT/);
-  assert.match(html, /https:\/\/auth\.test\/device\?user_code=WDJB-MJHT/);
+  assert.match(html, /href="https:\/\/auth\.test\/device\?user_code=WDJB-MJHT"/);
+  assert.doesNotMatch(html, /enter this code/i, "the code rides in the link, so the user doesn't type it");
+  assert.match(html, /WDJB-MJHT/, "the code is still shown, so the user can check it matches");
   assert.ok(response.headers.getSetCookie().some((c) => c.startsWith("fd_bind=")));
 });
 
@@ -511,22 +512,22 @@ test("CIBA_FALLBACK=false turns off approval emails for connecting", async () =>
   assert.equal(calls.filter((c) => c.url === BC).length, 0);
 });
 
-test("the connect page leads with a sign-in code, with the email form as the fallback", async () => {
+test("the connect page leads with a sign-in link, with the email form as the fallback", async () => {
   deviceFlow = true;
   const both = await (await call(new Request("https://front-door.test/"))).text();
-  assert.match(both, /Get a sign-in code/);
+  assert.match(both, /Get a sign-in link/);
   assert.match(both, /name="email"/);
-  assert.ok(both.indexOf("Get a sign-in code") < both.indexOf('name="email"'));
+  assert.ok(both.indexOf("Get a sign-in link") < both.indexOf('name="email"'));
 
   deviceFlow = false;
   resetDiscoveryCache();
   const cibaOnly = await (await call(new Request("https://front-door.test/"))).text();
-  assert.doesNotMatch(cibaOnly, /Get a sign-in code/);
+  assert.doesNotMatch(cibaOnly, /Get a sign-in link/);
   assert.match(cibaOnly, /name="email"/);
 
   deviceFlow = true;
   resetDiscoveryCache();
   const deviceOnly = await (await call(new Request("https://front-door.test/"), { CIBA_FALLBACK: "false" })).text();
-  assert.match(deviceOnly, /Get a sign-in code/);
+  assert.match(deviceOnly, /Get a sign-in link/);
   assert.doesNotMatch(deviceOnly, /name="email"/);
 });
