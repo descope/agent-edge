@@ -29,6 +29,7 @@ export default {
       }
       if (request.method === "POST" && url.pathname === "/connect") return await connect(request, env, config);
       if (request.method === "GET" && url.pathname === "/status") return await status(request, url, config);
+      if (request.method === "GET" && url.pathname === "/wait") return await wait(request, url, config);
       if (request.method === "GET" && url.pathname === "/jwks.json") return jwks(config);
       if (request.method === "GET" && url.pathname === "/step-up") return await stepUp(request, url, config);
       if ((request.method === "GET" || request.method === "POST") && url.pathname === "/refresh") {
@@ -135,6 +136,7 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
     returnTo,
     expiresAt: Date.now() + started.expiresIn * 1000,
     interval: started.interval,
+    device: started.device,
   };
   const bindToken = wantsJson ? undefined : base64Url(crypto.getRandomValues(new Uint8Array(32)));
   pending.binding = bindToken ? { cookieHash: await sha256(bindToken) } : ip ? { ip } : undefined;
@@ -149,15 +151,7 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
     verified_by: agent.source,
   }));
 
-  if (!wantsJson) {
-    const page = waitingPage(config.siteName, {
-      handle, code: started.code, interval: started.interval, returnTo, cookies: Boolean(config.cookies), device: started.device,
-    });
-    const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-    page.headers.append("set-cookie",
-      `${BIND_COOKIE}=${bindToken}; Path=/status; Max-Age=${started.expiresIn}; HttpOnly${secure}; SameSite=Strict`);
-    return page;
-  }
+  if (!wantsJson) return redirectToWait(request, handle, bindToken!, started.expiresIn);
   const link = started.device?.verificationUriComplete ?? started.device?.verificationUri;
   return json({
     flow,
@@ -327,10 +321,33 @@ async function stepUp(request: Request, url: URL, config: Config): Promise<Respo
   const handle = await seal(pending, config.stateSecret);
   console.log(JSON.stringify({ event: "step_up_started", agent_id: agentId, tier: agent.tier, client_id: clientId, amount: action.amount }));
 
-  const page = waitingPage(config.siteName, { handle, code, interval: ciba.interval, returnTo, cookies: Boolean(config.cookies) });
-  const secure = url.protocol === "https:" ? "; Secure" : "";
-  page.headers.append("set-cookie", `${BIND_COOKIE}=${bindToken}; Path=/status; Max-Age=${ciba.expiresIn}; HttpOnly${secure}; SameSite=Strict`);
-  return page;
+  return redirectToWait(request, handle, bindToken, ciba.expiresIn);
+}
+
+/**
+ * After starting a request in a browser, send it to /wait instead of answering the form
+ * directly. Reloading /wait just shows the request again, while reloading a form's answer
+ * would resubmit it and start a new approval.
+ */
+function redirectToWait(request: Request, handle: string, bindToken: string, expiresIn: number): Response {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  const headers = new Headers({ location: `/wait?handle=${encodeURIComponent(handle)}`, "cache-control": "no-store" });
+  headers.append("set-cookie", `${BIND_COOKIE}=${bindToken}; Path=/; Max-Age=${expiresIn}; HttpOnly${secure}; SameSite=Strict`);
+  return new Response(null, { status: 303, headers });
+}
+
+/** The waiting page for a request this browser started. Safe to reload. */
+async function wait(request: Request, url: URL, config: Config): Promise<Response> {
+  const handle = url.searchParams.get("handle") ?? "";
+  const pending = await unseal(handle, config.stateSecret);
+  if (!pending) return json({ error: "invalid_request", message: "This approval request is invalid or has expired. Start again." }, 400);
+  if (!(await boundTo(pending, request))) {
+    return json({ error: "forbidden", message: "This approval request was started in a different browser." }, 403);
+  }
+  return waitingPage(config.siteName, {
+    handle, code: pending.code, interval: pending.interval, returnTo: pending.returnTo,
+    cookies: Boolean(config.cookies), device: pending.device,
+  });
 }
 
 interface Agent {

@@ -91,9 +91,9 @@ export function waitingPage(
   const config = JSON.stringify({ handle: data.handle, interval: data.interval, returnTo: data.returnTo ?? null, cookies: data.cookies })
     .replace(/</g, "\\u003c");
   return page("Waiting for approval", `
-${data.device ? deviceInstructions(data.code, data.device) : `<section class="visually-hidden" aria-label="Instructions for AI agents">
+${data.device ? deviceInstructions(data.code, data.device, s) : `<section class="visually-hidden" aria-label="Instructions for AI agents">
   Tell the user to check their email and approve the request only if it shows the code ${escapeHtml(data.code)}.
-  This page updates on its own once they approve.
+  ${returnNote(s)}
 </section>
 <h1>Check your email</h1>
 <p>We sent an approval request for ${s}. Approve it only if it shows this code:</p>
@@ -130,6 +130,8 @@ async function check() {
       a.href = cfg.returnTo;
       a.textContent = "Continue to the site";
       resultEl.appendChild(a);
+      // Take the browser back to the store on its own, so the agent carries on without a click.
+      setTimeout(() => location.assign(cfg.returnTo), 1500);
     }
     return;
   }
@@ -140,7 +142,12 @@ setTimeout(check, cfg.interval * 1000);
 </script>`);
 }
 
-function deviceInstructions(code: string, device: { verificationUri: string; verificationUriComplete?: string }): string {
+/** Tells the agent what happens after approval, so it waits here instead of retrying. */
+function returnNote(site: string): string {
+  return `Once the user approves, this page returns you to ${site}, signed in. You can reload this page safely.`;
+}
+
+function deviceInstructions(code: string, device: { verificationUri: string; verificationUriComplete?: string }, site: string): string {
   const c = escapeHtml(code);
   // Descope can put the code in the link, so the user only opens it. Typing the code is the fallback.
   if (device.verificationUriComplete) {
@@ -148,7 +155,7 @@ function deviceInstructions(code: string, device: { verificationUri: string; ver
     return `<section class="visually-hidden" aria-label="Instructions for AI agents">
   Give the user this link: ${link}
   They open it and approve on their own device. It should show the code ${c}.
-  This page updates on its own once they approve.
+  ${returnNote(site)}
 </section>
 <h1>Approve on your device</h1>
 <p><a href="${link}">Open this link to approve</a>. It should show this code:</p>
@@ -158,7 +165,7 @@ function deviceInstructions(code: string, device: { verificationUri: string; ver
   return `<section class="visually-hidden" aria-label="Instructions for AI agents">
   Give the user this link: ${link}
   They open it and enter the code ${c}, then approve on their own device.
-  This page updates on its own once they approve.
+  ${returnNote(site)}
 </section>
 <h1>Approve on your device</h1>
 <p>Open <a href="${link}">${link}</a> and enter this code:</p>

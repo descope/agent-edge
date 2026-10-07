@@ -13,7 +13,7 @@ An example implementation of the agent front door, deployed to protect [Northbou
 4. **Starts the approval with Descope,** read-only (`orders:read`) by default.
    - **Device flow:** Descope returns a link with the code already in it. The user opens it on their own device, signs in, and approves. The consent screen shows the inbound app's name, so name each tier's app for the user, for example "Unverified agent".
    - **CIBA:** Descope emails the user. The approval message says who is asking and what they want, with a short code the agent also shows: "An unverified agent wants to view your orders at Northbound. Code K7Q2XM".
-5. **Waits for approval.** The waiting page, or an agent calling `GET /status`, polls Descope until the user approves or declines, then returns the access token. The refresh token stays with the front door.
+5. **Waits for approval.** A browser lands on `/wait`, which can be reloaded safely. It polls Descope until the user approves or declines, then sets the agent's session cookie and returns the browser to the page it came from. An agent calling `GET /status` gets the access token instead. The refresh token stays with the front door.
 
 When an agent sends the user's email instead of asking for a link, the front door uses CIBA: Descope emails the user directly, and the agent shows them the matching code. Set `CIBA_FALLBACK = "false"` to turn this path off, so agents can only connect with a code.
 
@@ -113,6 +113,7 @@ curl "http://localhost:8788/status?handle=<handle from the response>"
 | --- | --- |
 | `GET /` | The email form. Keeps `return_to` and `agent_hint` from the edge integration's redirect. |
 | `POST /connect` | Starts a connection. With no email, or with `flow=device`, starts the device flow: JSON callers get `{ flow, handle, user_code, verification_uri, verification_uri_complete, agent_id, tier, status_url, interval, expires_in }`, and an email, if given, is passed as `login_hint`. With an email, starts CIBA: JSON callers get `code` instead of the user code and link. Takes a form post or JSON. Returns `429` when rate limited. |
+| `GET /wait?handle=...` | The waiting page a browser lands on after connecting or step-up. Reloading it shows the same request. Once approved, it returns the browser to `return_to`. Only works in the browser that started the request. |
 | `GET /status?handle=...` | Polls Descope. Returns `pending` with the `interval` to wait, `approved` with the access token, `denied`, `expired`, or `error`. If Descope asks it to slow down, `pending` also includes a new `handle` with a longer interval; use it for later polls. Returns `403` if called from a different client than the one that started the request. |
 | `GET /jwks.json` | The front door's public key, for registering `private_key_jwt` with your inbound apps. |
 | `GET` or `POST /refresh` | Uses the `DSR` cookie to get a new access token and set a new `DS` cookie. `GET` with `return_to` redirects back; `POST` returns JSON. |
