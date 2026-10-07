@@ -1,6 +1,6 @@
 import { loadConfig, type Config, type Env, type RateLimiter, type Tier } from "./config";
 import { deviceFlowAvailable, pollToken, refreshTokens, startCiba, startDevice, type TokenSet } from "./descope";
-import { base64Url, randomCode, utf8 } from "./encoding";
+import { base64Url, fromBase64Url, randomCode, utf8 } from "./encoding";
 import { verifyHint, verifySigned } from "./hint";
 import { connectPage, waitingPage, type ConnectOptions } from "./pages";
 import { seal, unseal, type PendingRequest, type RefreshState } from "./state";
