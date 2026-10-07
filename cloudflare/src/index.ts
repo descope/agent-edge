@@ -1,7 +1,7 @@
 import { detectAgent, type AgentResult } from "./agentDetection";
 import { loadConfig, pathMatches, type Config, type Env } from "./config";
 import { addDiscoveryChallenge } from "./challenge";
-import { agentsPage, authMd, metadataUrl, protectedResourceMetadata } from "./discovery";
+import { agentsPage, metadataUrl, protectedResourceMetadata } from "./discovery";
 import { signAgentHint } from "./hint";
 import { cachedJsonFetcher } from "./keyCache";
 import { injectLoginHint } from "./loginHint";
@@ -42,7 +42,6 @@ export default {
           url.pathname.startsWith("/.well-known/oauth-protected-resource/")) {
         return protectedResourceMetadata(config);
       }
-      if (url.pathname === "/auth.md" || url.pathname === "/.well-known/auth.md") return authMd(config);
     }
 
     let agent: AgentResult;

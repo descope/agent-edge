@@ -5,7 +5,7 @@ Agent Edge lets your customers' AI agents into your site through a sign-in path 
 Each edge integration does the same jobs:
 
 - Verifies AI agents with Web Bot Auth, falling back to platform bot signals and user-agent hints.
-- Serves discovery files (`/.well-known/oauth-protected-resource`, `/auth.md`, `/agents`) that point agents at a Descope authorization server.
+- Serves the protected resource metadata (`/.well-known/oauth-protected-resource`) and an `/agents` page that point agents at a Descope authorization server.
 - Adds a `resource_metadata` `WWW-Authenticate` challenge to API 401s so MCP and OAuth clients find Descope on their own.
 - Adds an agent hint to login pages, sends agents to the front door, and blocks them from pages they shouldn't use.
 
@@ -30,7 +30,7 @@ flowchart LR
 
 The integration runs at the edge, in front of your site. For each request it:
 
-1. **Answers discovery requests itself.** `/.well-known/oauth-protected-resource`, `/auth.md` (also at `/.well-known/auth.md`), and `/agents` are served at the edge and point to your Descope project, so your origin never sees them.
+1. **Answers discovery requests itself.** `/.well-known/oauth-protected-resource` and `/agents` are served at the edge and point to your Descope project, so your origin never sees them.
 2. **Checks whether the caller is an agent.** A valid Web Bot Auth signature, checked against the agent platform's published keys, marks the request `verified`. Without one, the platform's own bot signals and user-agent hints can still flag it, usually as `unverified`.
 3. **Decides what to do.** In monitor mode it logs the agent and passes the request through. In route mode it also returns a 403 on paths agents may never use, such as password and payment changes. Once the front door is available, route mode will also redirect agents on login pages there.
 4. **Forwards everything else** to your site, with `x-descope-agent` and `x-descope-agent-origin` headers so your app knows which requests came from agents.
@@ -108,7 +108,7 @@ sequenceDiagram
   S-->>A: Response
 ```
 
-The front door serves the page with the email field, so the edge integration never handles the user's email. Browser agents fill it in like any form. Agents that read `/auth.md` or `/agents` instead of the login page get pointed to the same page, starting at step 4.
+The front door serves the page with the email field, so the edge integration never handles the user's email. Browser agents fill it in like any form. Agents that go to `/agents` instead of the login page get pointed to the same page, starting at step 4.
 
 What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead. The front door sets the access token as a cookie on your domain, so the agent's browser sends it on every request without adding a header. Your site has to accept the token from that cookie. See [Browser agents get a session cookie](front-door/README.md#browser-agents-get-a-session-cookie).
 

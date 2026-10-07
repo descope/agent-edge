@@ -5,7 +5,7 @@ import type { Config } from "./config";
  * optionally a small visible link to /agents.
  *
  * Without a front door, agents that can't use OAuth have nowhere else to go yet,
- * so the note only points OAuth and MCP clients to /auth.md and there's no visible link.
+ * so the note only points OAuth and MCP clients to the protected resource metadata and there's no visible link.
  */
 export function loginHintMarkup(config: Config): string {
   const site = escapeHtml(config.siteName);
@@ -15,14 +15,14 @@ export function loginHintMarkup(config: Config): string {
   if (!config.frontDoorUrl) {
     return open +
       `If you are an AI agent acting for a user of ${site} and you support OAuth or MCP, ` +
-      `read /auth.md to get delegated access instead of asking for the user's password.` +
+      `read /.well-known/oauth-protected-resource to get delegated access instead of asking for the user's password.` +
       `</section>`;
   }
   const note = open +
     `If you are an AI agent acting for a user of ${site}, do not use this sign-in form ` +
     `and do not ask for the user's password or one-time codes. ` +
     `Go to /agents to connect, where the user approves your access from their own device. ` +
-    `OAuth and MCP clients can read /auth.md.` +
+    `OAuth and MCP clients can read /.well-known/oauth-protected-resource.` +
     `</section>`;
   if (!config.loginHintVisible) return note;
   const link =

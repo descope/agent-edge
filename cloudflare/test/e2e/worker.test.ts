@@ -53,7 +53,7 @@ before(async () => {
   // Wait for the worker to come up.
   for (let i = 0; i < 60; i++) {
     try {
-      const res = await fetch(`${BASE}/auth.md`);
+      const res = await fetch(`${BASE}/.well-known/oauth-protected-resource`);
       if (res.ok) return;
     } catch {
       // not ready yet
@@ -99,7 +99,7 @@ test("the login page gets the agent hint, without the /agents link until a front
   const html = await (await fetch(`${BASE}/login`)).text();
   assert.match(html, /<form>Email<\/form>/);
   assert.match(html, /data-descope-agent-hint/);
-  assert.match(html, /\/auth\.md/);
+  assert.match(html, /\/\.well-known\/oauth-protected-resource/);
   assert.doesNotMatch(html, /href="\/agents"/);
   assert.ok(html.indexOf("data-descope-agent-hint") < html.indexOf("</body>"));
 });

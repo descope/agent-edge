@@ -8,7 +8,7 @@ A Cloudflare Worker you put in front of your site to let customers' AI agents in
 
 ```mermaid
 flowchart TD
-  req[Request to your site] --> disc{"Discovery path?<br/>/auth.md, /agents,<br/>/.well-known/oauth-protected-resource"}
+  req[Request to your site] --> disc{"Discovery path?<br/>/agents,<br/>/.well-known/oauth-protected-resource"}
   disc -- yes --> served[Answered by the Worker]
   disc -- no --> agent{"Is it an agent?<br/>Web Bot Auth signature,<br/>session cookie, user agent"}
   agent -- no --> site[Your site, unchanged]
@@ -22,7 +22,7 @@ flowchart TD
 ```
 
 - **Finds agents.** It checks Web Bot Auth signatures against each agent platform's published keys. It also recognizes the front door's session cookie, Cloudflare's verified bots, and agent-like user agents.
-- **Shows agents the way in.** It serves `auth.md`, an `/agents` page and the OAuth protected resource metadata. It also adds a note for agents to your login pages and a `resource_metadata` challenge to your API's 401s, so MCP and OAuth clients find Descope on their own.
+- **Shows agents the way in.** It serves an `/agents` page and the OAuth protected resource metadata (RFC 9728). It also adds a note for agents to your login pages and a `resource_metadata` challenge to your API's 401s, so MCP and OAuth clients find Descope on their own.
 - **Routes agents.** In route mode, it sends agents on your login page to the [front door](../front-door/), where the customer approves them through Descope. It blocks agents from pages such as password and payment changes.
 - **Tells your site.** Each request it forwards gets an `x-descope-agent` header (`verified` or `unverified`) and, for verified agents, `x-descope-agent-origin`.
 
@@ -85,11 +85,11 @@ Your site's last step is accepting the Descope token the front door gives agents
 | Which API paths get the Descope pointer on 401 | `API_PATHS` |
 | The name agents and customers see | `SITE_NAME` |
 | The note and link added to login pages | `INJECT_LOGIN_HINT`, `LOGIN_HINT_VISIBLE`, or `src/loginHint.ts` |
-| What `auth.md` and `/agents` say | `src/discovery.ts` |
+| What `/agents` and the protected resource metadata say | `src/discovery.ts` |
 | How agents are recognized | `AGENT_USER_AGENT_PATTERNS`, or `src/agentDetection.ts` |
 | What happens to each request | `src/index.ts` |
 
-If your site already serves `/agents`, `/auth.md` or `/.well-known/auth.md`, rename yours or remove those routes from `src/index.ts`.
+If your site already serves `/agents`, rename yours or remove that route from `src/index.ts`.
 
 ### All settings
 
@@ -125,7 +125,7 @@ npx wrangler dev --var UPSTREAM_ORIGIN:http://localhost:3000
 Then, with `MODE:route` and `FRONT_DOOR_URL` set:
 
 ```sh
-curl http://localhost:8787/auth.md
+curl http://localhost:8787/.well-known/oauth-protected-resource
 curl -I -A "HeadlessChrome" http://localhost:8787/login   # 302 to the front door
 curl -I http://localhost:8787/api/orders                  # 401 with WWW-Authenticate: Bearer resource_metadata=...
 ```

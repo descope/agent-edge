@@ -19,7 +19,7 @@ enabled = true
 # "route" also redirects agents from your login pages and blocks sensitive paths.
 MODE = "monitor"
 
-# Your site's display name, used on the /agents page and in auth.md.
+# Your site's display name, used on the /agents page and in the note on login pages.
 SITE_NAME = "Example Store"
 
 # Your Descope authorization server (issuer) URL.
