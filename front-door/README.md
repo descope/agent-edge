@@ -110,6 +110,37 @@ curl "http://localhost:8788/status?handle=<handle from the response>"
 
 Agents connect read-only, and step up when they try to buy something. Agent platforms such as Muse already ask the user before every purchase, but the store can't see that prompt or check that it happened. Step-up gives the store an approval it can verify, at the moment the agent tries to do more than it was granted.
 
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as Agent's browser
+  participant S as Store (behind the edge Worker)
+  participant F as Front door
+  participant D as Descope
+  actor U as User
+  A->>S: Place order (DS cookie: token with orders:read)
+  S->>S: Valid token, but no orders:write
+  S-->>A: Redirect to /step-up with the order signed: pat@example.com, $18.95
+  A->>F: GET /step-up
+  F->>F: Check the store's signature
+  F->>D: CIBA request for orders:write, binding message "…wants to place a $18.95 order at Northbound. Code K7Q2XM"
+  D-->>F: auth_req_id
+  F-->>A: "Check your email" page showing K7Q2XM
+  D->>U: Approval email
+  U->>D: Signs in, checks the code and the order, approves
+  loop Until approved or declined
+    A->>F: Check status
+    F->>D: Token request
+  end
+  D-->>F: Short-lived token with orders:write
+  F-->>A: Replaces the DS cookie, then "Continue to the site"
+  A->>S: Place order again (DS cookie: token with orders:write)
+  S->>S: Valid token with orders:write
+  S-->>A: Order confirmed
+```
+
+If the user declines, the waiting page says so, the agent's token stays read-only, and the order isn't placed.
+
 1. **The store refuses and sends the agent here.** When an agent whose token lacks `orders:write` places an order, the store redirects it to `/step-up?request=...&return_to=...`. The `request` describes the order, `{ email, amount, exp }`, and is signed with `STEP_UP_SECRET`, which the store and front door share. The agent can't change what the user will see.
 2. **The front door asks Descope.** It starts a CIBA request for `STEP_UP_SCOPE` (`openid orders:write`), using the same client as the agent's original connection, with a message naming the order: "An unverified agent wants to place a $18.95 order at Northbound. Code K7Q2XM".
 3. **The user approves on their own device,** and the front door replaces the agent's access cookie with the new token. The refresh cookie from the original read-only connection stays as it is.

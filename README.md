@@ -116,7 +116,7 @@ What happens after approval depends on the agent. An agent that calls your API u
 
 CIBA doesn't skip signing in. The approval link opens a Descope flow, the CIBA approval flow you choose on the inbound app, and that flow does three things:
 
-1. **Signs the user in.** Use any method Descope supports: social or OAuth sign-in (Google, Apple), a magic link, a one-time code by email or text, or a passkey. To keep users on the login they already have, replace Descope's sign-in step with your own using the **External Authentication** action in the flow. Users then approve with the same account and credentials they use on your site today.
+1. **Signs the user in.** Pick something that needs no setup, so approving takes seconds: a one-time code sent to the same email as the approval, a magic link, or social sign-in such as Google. To keep users on the login they already have, replace Descope's sign-in step with your own using the **External Authentication** action in the flow. Users then approve with the same account and credentials they use on your site today.
 2. **Shows the consent screen.** This is the step that makes delegation meaningful. It tells the user, in plain language:
    - **which agent is asking**, and whether its platform was verified
    - **what it will be able to do**: the scopes requested
