@@ -1,6 +1,6 @@
-# agent-ready for Cloudflare
+# Agent Edge for Cloudflare
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/descope/agent-ready/tree/main/cloudflare)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/descope/agent-edge/tree/main/cloudflare)
 
 A Cloudflare Worker you put in front of your site to let customers' AI agents in, with Descope as the authorization server. It finds agents, shows them a sign-in path that doesn't need the customer's password, and keeps them away from pages they shouldn't use. Your site's login doesn't change.
 
@@ -35,8 +35,8 @@ You need a site proxied through Cloudflare, a Descope project, and Node.js 22.
 1. **Get the code.**
 
    ```sh
-   git clone https://github.com/descope/agent-ready.git
-   cd agent-ready/cloudflare
+   git clone https://github.com/descope/agent-edge.git
+   cd agent-edge/cloudflare
    npm install
    ```
 

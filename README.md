@@ -1,13 +1,13 @@
-# agent-ready
+# Agent Edge
 
-Edge integrations that make a website ready for AI agents with [Descope](https://www.descope.com), without changing the app behind it.
+Agent Edge lets your customers' AI agents into your site through a sign-in path of their own, with [Descope](https://www.descope.com) as the authorization server, and without changing your site's login. It runs at the edge, in front of your site, and sends agents to the **front door**, where the customer approves them.
 
-Each integration runs in front of a site and does the same jobs:
+Each edge integration does the same jobs:
 
 - Verifies AI agents with Web Bot Auth, falling back to platform bot signals and user-agent hints.
 - Serves discovery files (`/.well-known/oauth-protected-resource`, `/auth.md`, `/agents`) that point agents at a Descope authorization server.
 - Adds a `resource_metadata` `WWW-Authenticate` challenge to API 401s so MCP and OAuth clients find Descope on their own.
-- Adds an agent hint to login pages, and will route agents to a Descope-hosted front door once it's available.
+- Adds an agent hint to login pages, sends agents to the front door, and blocks them from pages they shouldn't use.
 
 Integrations start in monitor mode and fail open, so they can be deployed safely before they change any traffic.
 

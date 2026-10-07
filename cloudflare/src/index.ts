@@ -13,13 +13,13 @@ const AGENT_HEADERS = ["x-descope-agent", "x-descope-agent-origin"];
  * Set on every request the worker forwards. If one comes back, the worker is forwarding
  * to itself, which is what happens under `wrangler dev` without UPSTREAM_ORIGIN.
  */
-const HOP_HEADER = "x-agent-ready-forwarded";
+const HOP_HEADER = "x-agent-edge-forwarded";
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     if (request.headers.has(HOP_HEADER)) {
       return new Response(
-        "agent-ready: this request looped back to the worker. Under `wrangler dev` there is no site behind it, " +
+        "agent-edge: this request looped back to the worker. Under `wrangler dev` there is no site behind it, " +
         "so set UPSTREAM_ORIGIN to the site to forward to, for example --var UPSTREAM_ORIGIN:http://localhost:3000\n",
         { status: 508, headers: { "content-type": "text/plain; charset=utf-8" } },
       );

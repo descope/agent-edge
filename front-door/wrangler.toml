@@ -2,7 +2,7 @@
 # approval with Descope CIBA. Read "Before production" in the README before using it on a real site.
 # Run it locally with `npm run dev`, or deploy it with `npm run deploy`.
 
-name = "agent-ready-front-door"
+name = "agent-edge-front-door"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 

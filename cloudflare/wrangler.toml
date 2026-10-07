@@ -1,7 +1,7 @@
-# agent-ready Cloudflare Worker
+# Agent Edge: a Cloudflare Worker that lets customers' AI agents into your site
 # Clone this project, fill in the values below, then run `npm run deploy`.
 
-name = "agent-ready-cloudflare"
+name = "agent-edge"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 
