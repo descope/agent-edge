@@ -9,8 +9,6 @@ It runs at the edge, in front of your site. It recognizes agents, shows them whe
 | [`cloudflare/`](cloudflare/) | The edge integration, a Cloudflare Worker |
 | [`front-door/`](front-door/) | An example front door, deployed in front of [Northbound](https://github.com/descope-sample-apps/northbound-sample-app) |
 
-Vercel and Amazon CloudFront integrations are coming soon.
-
 ## How it works
 
 Today an agent that reaches a login page asks the user for their password and signs in as them, so the site can't tell the two apart. With Agent Edge, the agent asks for access instead. The user approves it on their own device, and Descope issues a token that names both the user and the agent.
