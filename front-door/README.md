@@ -2,9 +2,6 @@
 
 An example front door, deployed in front of [Northbound](https://github.com/descope-sample-apps/northbound-sample-app). Agents that can't open a browser come here to get the customer's approval through Descope, and leave with a token.
 
-> [!NOTE]
-> A hosted front door is coming soon from Descope.
-
 ## What it does
 
 1. **Connects the agent.** The agent asks for a sign-in link and passes it to the user (the device flow). Some agents, such as Muse and Instinct, are reluctant to hand users links. That's what CIBA is for: the agent enters the user's email instead, and Descope emails them the approval directly. Agents without a browser can do either with `POST /connect`. The page lists what the user is approving, so the agent can tell them before they start.
