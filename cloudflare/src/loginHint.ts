@@ -16,16 +16,23 @@ export function loginHintMarkup(config: Config, pageUrl?: string): string {
   const target = new URL(config.frontDoorUrl);
   if (pageUrl) target.searchParams.set("return_to", pageUrl);
   const connect = escapeHtml(target.toString());
+  // Pinned to the corner of the screen, so it's seen without scrolling. Canvas and CanvasText
+  // follow the page's light or dark color scheme.
   return `<aside data-descope-agent-hint aria-label="Signing in with an AI assistant" ` +
-    `style="font:14px/1.5 system-ui,sans-serif;max-width:28rem;margin:16px auto;padding:12px 16px;` +
-    `border:1px solid rgba(127,127,127,0.35);border-radius:8px">` +
+    `style="position:fixed;right:16px;bottom:16px;left:auto;z-index:2147483000;max-width:22rem;` +
+    `font:14px/1.5 system-ui,sans-serif;padding:12px 16px;border:1px solid rgba(127,127,127,0.35);` +
+    `border-radius:8px;background:Canvas;color:CanvasText;box-shadow:0 2px 12px rgba(0,0,0,0.12)">` +
     `<strong>Using an AI assistant?</strong> It can connect to your ${site} account with your approval, ` +
     `without your password. You approve read-only access with a link on your own device, ` +
-    `and approve each purchase separately. <a href="${connect}">Connect an assistant</a>` +
+    `and approve each purchase separately. <a href="${connect}" style="color:inherit;font-weight:600;text-decoration:underline">Connect an assistant</a>` +
     `</aside>`;
 }
 
-/** Streams the login page through HTMLRewriter and appends the hint to the body. */
+/**
+ * Streams the login page through HTMLRewriter and adds the box at the end of <body>. It sits
+ * outside the page's own content, so frameworks that re-render on load (React, for example)
+ * leave it alone, and it's pinned to the corner of the screen so it's still seen.
+ */
 export function injectLoginHint(response: Response, config: Config, pageUrl?: string): Response {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/html")) return response;
