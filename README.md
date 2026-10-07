@@ -45,7 +45,7 @@ It identifies agents. It doesn't decide what they can do; your site does that wi
 
 **Agents that can open a browser,** such as MCP clients, find Descope from the API's 401 and use the standard authorization code flow. They don't use the front door.
 
-**Agents that can't,** such as computer use agents in a cloud VM, go through the front door. It gives them a sign-in link to pass to the user (the device flow), or, if they can't pass on a link, Descope emails the user (CIBA). Either way the user approves on their own device.
+**Agents that can't,** such as computer use agents in a cloud VM, go through the front door. It gives them a sign-in link to pass to the user (the device flow). Some agents, such as Muse and Instinct, are reluctant to hand users links, so they can send the user's email instead and Descope emails the approval (CIBA). Either way the user approves on their own device.
 
 ```mermaid
 sequenceDiagram

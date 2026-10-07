@@ -7,7 +7,7 @@ An example front door, deployed in front of [Northbound](https://github.com/desc
 
 ## What it does
 
-1. **Connects the agent.** The agent asks for a sign-in link and passes it to the user (the device flow). If it can't pass on a link, it can enter the user's email instead, and Descope emails them (CIBA). Agents without a browser can do the same with `POST /connect`.
+1. **Connects the agent.** The agent asks for a sign-in link and passes it to the user (the device flow). Some agents, such as Muse and Instinct, are reluctant to hand users links. That's what CIBA is for: the agent enters the user's email instead, and Descope emails them the approval directly. Agents without a browser can do either with `POST /connect`.
 2. **Works out who the agent is,** from a Web Bot Auth signature or the edge integration's signed hint, and picks an inbound app for that tier: a trusted platform, a verified agent from elsewhere, or an unverified agent.
 3. **Asks Descope for read-only access** (`orders:read`). The user approves on their own device.
 4. **Signs the agent in.** A browser waits on `/wait`, which is safe to reload. Once the user approves, the front door sets the token as a cookie on your domain and sends the browser back to your site. API agents get the token from `GET /status`.
