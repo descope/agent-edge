@@ -15,7 +15,6 @@ export interface Env {
   HINT_SIGNING_SECRET?: string;
   API_PATHS?: string;
   INJECT_LOGIN_HINT?: string;
-  LOGIN_HINT_VISIBLE?: string;
   /** Local development only: forward to this origin instead of the request's host. */
   UPSTREAM_ORIGIN?: string;
   /** The cookie the front door sets once an agent is signed in. Defaults to DS. */
@@ -40,7 +39,6 @@ export interface Config {
   hintSigningSecret?: string;
   apiPaths: string[];
   injectLoginHint: boolean;
-  loginHintVisible: boolean;
   upstreamOrigin?: string;
   agentSessionCookie: string;
 }
@@ -90,7 +88,6 @@ export function loadConfig(env: Env): Config {
     hintSigningSecret: env.HINT_SIGNING_SECRET || undefined,
     apiPaths: list(env.API_PATHS ?? "/api/*"),
     injectLoginHint: env.INJECT_LOGIN_HINT !== "false",
-    loginHintVisible: env.LOGIN_HINT_VISIBLE !== "false",
     upstreamOrigin: env.UPSTREAM_ORIGIN ? requiredUrl("UPSTREAM_ORIGIN", env.UPSTREAM_ORIGIN) : undefined,
     agentSessionCookie: env.AGENT_SESSION_COOKIE || "DS",
   };

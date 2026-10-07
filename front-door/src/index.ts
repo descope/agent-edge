@@ -2,7 +2,7 @@ import { loadConfig, type Config, type Env, type RateLimiter, type Tier } from "
 import { deviceFlowAvailable, pollToken, refreshTokens, startCiba, startDevice, type TokenSet } from "./descope";
 import { base64Url, randomCode, utf8 } from "./encoding";
 import { verifyHint, verifySigned } from "./hint";
-import { connectPage, waitingPage } from "./pages";
+import { connectPage, waitingPage, type ConnectOptions } from "./pages";
 import { seal, unseal, type PendingRequest, type RefreshState } from "./state";
 import { verifiedSignatureAgent } from "./webBotAuth";
 
@@ -22,10 +22,12 @@ export default {
     const url = new URL(request.url);
     try {
       if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/connect")) {
+        const agentHint = url.searchParams.get("agent_hint") ?? undefined;
+        const agent = await identify(request, agentHint, config);
         return connectPage(config.siteName, {
           returnTo: safeReturnTo(url.searchParams.get("return_to")),
-          agentHint: url.searchParams.get("agent_hint") ?? undefined,
-        }, undefined, await connectOptions(config));
+          agentHint,
+        }, undefined, await connectOptions(config, agent.tier));
       }
       if (request.method === "POST" && url.pathname === "/connect") return await connect(request, env, config);
       if (request.method === "GET" && url.pathname === "/status") return await status(request, url, config);
@@ -44,8 +46,14 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 /** Which ways of connecting this front door offers: device codes when Descope supports them, approval emails unless turned off. */
-async function connectOptions(config: Config): Promise<{ device: boolean; ciba: boolean }> {
-  return { device: await deviceFlowAvailable(config), ciba: config.cibaFallback };
+async function connectOptions(config: Config, tier: Tier = "unverified"): Promise<ConnectOptions> {
+  return {
+    device: await deviceFlowAvailable(config),
+    ciba: config.cibaFallback,
+    // Shown on the page, so the agent and its user know what they're approving before they start.
+    access: config.access[tier].replaceAll("{site}", config.siteName),
+    stepUp: Boolean(config.stepUpSecret),
+  };
 }
 
 /**

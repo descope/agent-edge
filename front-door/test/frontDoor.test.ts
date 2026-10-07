@@ -84,7 +84,9 @@ test("the connect page has an email form and keeps return_to and agent_hint", as
   assert.match(html, /<input id="email" name="email" type="email"/);
   assert.match(html, /name="return_to" value="https:\/\/shop.test\/login"/);
   assert.match(html, /name="agent_hint" value="abc.def"/);
-  assert.match(html, /Instructions for AI agents/);
+  // Everything is visible: no hidden text addressed to AI agents.
+  assert.doesNotMatch(html, /visually-hidden|Instructions for AI agents|If you are an AI agent/);
+  assert.match(html, /without your password/);
 });
 
 test("a return_to that isn't http(s) is dropped", async () => {
@@ -607,4 +609,16 @@ test("once approved, the waiting page sends the browser back to the store", asyn
   assert.match(html, /returns you to Northbound, signed in/);
   assert.match(html, /location\.assign\(cfg\.returnTo\)/);
   assert.match(html, /"returnTo":"https:\/\/shop\.test\/cart"/);
+});
+
+test("the connect page says what the user is approving, and what needs a separate approval", async () => {
+  const html = await (await call(new Request("https://front-door.test/"), { STEP_UP_SECRET, UNVERIFIED_ACCESS: "view your orders at {site}" })).text();
+  assert.match(html, /What you(?:'|&#39;)re approving/);
+  assert.match(html, /view your orders at Northbound/);
+  assert.match(html, /place an order unless you approve that order separately/);
+  assert.match(html, /never gets your password/);
+
+  // Without step-up configured, it doesn't promise per-order approval.
+  const noStepUp = await (await call(new Request("https://front-door.test/"))).text();
+  assert.doesNotMatch(noStepUp, /approve that order separately/);
 });

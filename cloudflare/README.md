@@ -19,7 +19,7 @@ flowchart LR
 ```
 
 - **Finds agents** by Web Bot Auth signature, the front door's session cookie, Cloudflare's verified bots, or their user agent.
-- **Shows them the way in:** an `/agents` page, the protected resource metadata, a note on your login pages, and a `resource_metadata` challenge on your API's 401s.
+- **Shows them the way in:** an `/agents` page, the protected resource metadata, a visible box on your login pages, and a `resource_metadata` challenge on your API's 401s.
 - **Routes them,** in route mode: agents on your login page go to the [front door](../front-door/), and pages such as payment methods return a 403.
 - **Tells your site** with `x-descope-agent` headers. Trust them only if your site is reachable only through Cloudflare.
 
@@ -82,12 +82,12 @@ Then have your site accept the tokens. See [Accepting the tokens in your backend
 | `LOGIN_PATHS`, `BLOCKED_AGENT_PATHS`, `API_PATHS` | Comma-separated paths. A trailing `*` matches a prefix. |
 | `AGENT_USER_AGENT_PATTERNS` | User agents to treat as unverified agents |
 | `TRUST_CLOUDFLARE_VERIFIED_BOTS`, `CLOUDFLARE_AGENT_BOT_CATEGORIES` | Treat these Cloudflare-verified bots as verified agents |
-| `INJECT_LOGIN_HINT`, `LOGIN_HINT_VISIBLE` | The note and link on login pages. Both on by default. |
+| `INJECT_LOGIN_HINT` | Adds a visible "Using an AI assistant?" box, linking to the front door, to login pages. On by default. |
 | `SCOPES_SUPPORTED`, `AUTHORIZATION_DETAILS_TYPES` | Listed in the protected resource metadata |
 | `AGENT_SESSION_COOKIE` | The front door's session cookie. Defaults to `DS`. |
 | `UPSTREAM_ORIGIN` | Local testing only: the site to forward to |
 
-The code is in `src/`: `index.ts` handles each request, `agentDetection.ts` finds agents, `discovery.ts` serves `/agents` and the metadata, and `loginHint.ts` writes the login-page note. If your site already serves `/agents`, remove that route from `index.ts`.
+The code is in `src/`: `index.ts` handles each request, `agentDetection.ts` finds agents, `discovery.ts` serves `/agents` and the metadata, and `loginHint.ts` writes the login-page box. If your site already serves `/agents`, remove that route from `index.ts`.
 
 ## Test it
 
