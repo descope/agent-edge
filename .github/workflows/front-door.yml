@@ -1,4 +1,4 @@
-name: demo-front-door
+name: front-door
 
 on:
   push:
@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: demo/front-door
+        working-directory: front-door
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: demo/front-door/package-lock.json
+          cache-dependency-path: front-door/package-lock.json
       - run: npm ci
       - run: npm run typecheck
       - run: npm test

@@ -1,7 +1,8 @@
-# Demo stand-in for the Descope-hosted agent front door. Not for production.
+# Reference implementation of the agent front door: a Cloudflare Worker that gets the user's
+# approval with Descope CIBA. Read "Before production" in the README before using it on a real site.
 # Run it locally with `npm run dev`, or deploy it with `npm run deploy`.
 
-name = "agent-ready-demo-front-door"
+name = "agent-edge-front-door"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 
@@ -10,6 +11,19 @@ port = 8788
 
 [observability]
 enabled = true
+
+# Rate limits on /connect, so the front door can't be used to flood inboxes with approval
+# requests. Cloudflare supports periods of 10 or 60 seconds; add a WAF rate limiting rule
+# for longer windows.
+[[ratelimits]]
+name = "CONNECT_IP_LIMITER"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "CONNECT_EMAIL_LIMITER"
+namespace_id = "1002"
+simple = { limit = 3, period = 60 }
 
 [vars]
 # Your site's display name, shown on the connect page and in the approval message.
@@ -26,16 +40,19 @@ UNVERIFIED_CLIENT_ID = "YOUR_UNVERIFIED_CLIENT_ID"
 # Trusted platforms, as a JSON map from Signature-Agent origin to inbound app client ID.
 TRUSTED_PLATFORMS = "{}"
 
-# Space-separated scopes requested for each tier.
-TRUSTED_SCOPES = "openid"
-VERIFIED_SCOPES = "openid"
-UNVERIFIED_SCOPES = "openid"
+# Space-separated scopes requested when an agent first connects. Read-only by default: the agent
+# can browse and check orders, and steps up for each purchase.
+TRUSTED_SCOPES = "openid orders:read"
+VERIFIED_SCOPES = "openid orders:read"
+UNVERIFIED_SCOPES = "openid orders:read"
 
-# What each tier is asking to do, shown to the user in the approval message ({site} is SITE_NAME).
-# Keep these in step with the limits your inbound apps put in their tokens, so the user approves
-# exactly what the store will enforce.
-TRUSTED_ACCESS = "place orders up to $200 at {site} over the next 7 days"
-VERIFIED_ACCESS = "place orders up to $50 at {site} over the next 7 days"
+# The scope a step-up asks for when the store sends an agent here to approve one purchase.
+STEP_UP_SCOPE = "openid orders:write"
+
+# What each tier is asking for when it first connects, shown to the user in the approval
+# message ({site} is SITE_NAME). Keep it in step with the scopes above.
+TRUSTED_ACCESS = "view your orders at {site}"
+VERIFIED_ACCESS = "view your orders at {site}"
 UNVERIFIED_ACCESS = "view your orders at {site}"
 
 # Session cookies for browser agents. On approval, the front door sets the access token as a
@@ -51,5 +68,6 @@ REFRESH_TOKEN_COOKIE = "DSR"
 # Set these as secrets (wrangler secret put NAME), or in .dev.vars for local runs:
 #   STATE_SECRET         random string that seals request handles
 #   HINT_SIGNING_SECRET  same value as the edge worker's, to trust its agent_hint
+#   STEP_UP_SECRET       same value as the store's, to trust the purchases it sends agents to approve
 #   PRIVATE_KEY_JWK      for private_key_jwt (npm run generate-key), or
 #   CLIENT_SECRETS       JSON map from client ID to client secret

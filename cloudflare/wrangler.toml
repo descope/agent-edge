@@ -1,7 +1,7 @@
-# agent-ready Cloudflare Worker
+# Agent Edge: a Cloudflare Worker that lets customers' AI agents into your site
 # Clone this project, fill in the values below, then run `npm run deploy`.
 
-name = "agent-ready-cloudflare"
+name = "agent-edge"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 
@@ -19,14 +19,14 @@ enabled = true
 # "route" also redirects agents from your login pages and blocks sensitive paths.
 MODE = "monitor"
 
-# Your site's display name, used on the /agents page and in auth.md.
+# Your site's display name, used on the /agents page and in the note on login pages.
 SITE_NAME = "Example Store"
 
 # Your Descope authorization server (issuer) URL.
 DESCOPE_ISSUER = "https://api.descope.com/YOUR_PROJECT_ID"
 
-# The Descope-hosted agent front door. It isn't available yet. Leave this unset until it is;
-# everything except the login-page redirect works without it.
+# The agent front door (see ../front-door). Without it, everything works except sending agents
+# from login pages to the front door.
 # FRONT_DOOR_URL = "https://agents.example.com"
 
 # The resource identifier agents request tokens for.

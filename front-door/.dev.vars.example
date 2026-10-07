@@ -3,3 +3,5 @@ HINT_SIGNING_SECRET=""
 # Set one of these two. If PRIVATE_KEY_JWK is set it wins, and it needs private_key_jwt enabled on your Descope project.
 PRIVATE_KEY_JWK=""
 CLIENT_SECRETS='{"YOUR_UNVERIFIED_CLIENT_ID":"YOUR_CLIENT_SECRET"}'
+# Same value as the store's, if it sends agents to /step-up.
+STEP_UP_SECRET=""

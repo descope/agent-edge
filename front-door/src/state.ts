@@ -6,11 +6,20 @@ export interface PendingRequest {
   authReqId: string;
   clientId: string;
   tier: Tier;
+  signatureAgent?: string;
   agentId: string;
   code: string;
+  /** A step-up for one action: its token replaces the access cookie but not the refresh cookie. */
+  stepUp?: boolean;
   returnTo?: string;
   expiresAt: number;
   interval: number;
+  /**
+   * Ties the handle to the client that started the request, so a handle that leaks (from a
+   * log or a shared link) is no use to anyone else. Browser requests are tied to a cookie set
+   * on the waiting page, JSON requests to the client's IP.
+   */
+  binding?: { cookieHash?: string; ip?: string };
 }
 
 async function key(secret: string): Promise<CryptoKey> {
@@ -50,4 +59,7 @@ export interface RefreshState {
   refreshToken: string;
   clientId: string;
   agentId: string;
+  /** Who the agent is, so a later step-up uses the same client and names the agent the same way. */
+  tier?: Tier;
+  signatureAgent?: string;
 }

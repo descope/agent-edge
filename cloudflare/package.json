@@ -1,8 +1,8 @@
 {
-  "name": "agent-ready-cloudflare",
+  "name": "agent-edge-cloudflare",
   "version": "0.1.0",
   "private": true,
-  "description": "Cloudflare Worker that verifies AI agents, publishes agent discovery files, and routes agents to a Descope-hosted front door.",
+  "description": "Cloudflare Worker that verifies AI agents, publishes agent discovery files, and routes agents to the front door.",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

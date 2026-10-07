@@ -1,12 +1,13 @@
-import { loadConfig, type Config, type Env, type Tier } from "./config";
+import { loadConfig, type Config, type Env, type RateLimiter, type Tier } from "./config";
 import { pollToken, refreshTokens, startCiba, type TokenSet } from "./descope";
-import { randomCode } from "./encoding";
-import { verifyHint } from "./hint";
+import { base64Url, randomCode, utf8 } from "./encoding";
+import { verifyHint, verifySigned } from "./hint";
 import { connectPage, waitingPage } from "./pages";
 import { seal, unseal, type PendingRequest, type RefreshState } from "./state";
 import { verifiedSignatureAgent } from "./webBotAuth";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BIND_COOKIE = "fd_bind";
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -26,9 +27,10 @@ export default {
           agentHint: url.searchParams.get("agent_hint") ?? undefined,
         });
       }
-      if (request.method === "POST" && url.pathname === "/connect") return await connect(request, config);
-      if (request.method === "GET" && url.pathname === "/status") return await status(url, config);
+      if (request.method === "POST" && url.pathname === "/connect") return await connect(request, env, config);
+      if (request.method === "GET" && url.pathname === "/status") return await status(request, url, config);
       if (request.method === "GET" && url.pathname === "/jwks.json") return jwks(config);
+      if (request.method === "GET" && url.pathname === "/step-up") return await stepUp(request, url, config);
       if ((request.method === "GET" || request.method === "POST") && url.pathname === "/refresh") {
         return await refresh(request, url, config);
       }
@@ -40,7 +42,7 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-async function connect(request: Request, config: Config): Promise<Response> {
+async function connect(request: Request, env: Env, config: Config): Promise<Response> {
   const wantsJson = (request.headers.get("content-type") ?? "").includes("application/json");
   const input: Record<string, unknown> = wantsJson
     ? ((await request.clone().json().catch(() => ({}))) as Record<string, unknown>)
@@ -53,6 +55,18 @@ async function connect(request: Request, config: Config): Promise<Response> {
     return wantsJson
       ? json({ error: "invalid_request", message: "email is required" }, 400)
       : connectPage(config.siteName, { returnTo, agentHint }, "Enter a valid email address.");
+  }
+
+  // Checked before anything reaches Descope, so the front door can't be used to flood
+  // someone's inbox with approval requests.
+  const ip = request.headers.get("cf-connecting-ip") ?? undefined;
+  if (await limited(env.CONNECT_IP_LIMITER, ip) || await limited(env.CONNECT_EMAIL_LIMITER, email.toLowerCase())) {
+    console.log(JSON.stringify({ event: "connect_rate_limited" }));
+    const message = "Too many approval requests. Wait a minute and try again.";
+    const response = wantsJson
+      ? json({ error: "rate_limited", message }, 429)
+      : connectPage(config.siteName, { returnTo, agentHint }, message);
+    return withHeaders(response, { "retry-after": "60" }, 429);
   }
 
   const agent = await identify(request, agentHint, config);
@@ -73,12 +87,15 @@ async function connect(request: Request, config: Config): Promise<Response> {
     authReqId: ciba.authReqId,
     clientId,
     tier: agent.tier,
+    signatureAgent: agent.signatureAgent,
     agentId,
     code,
     returnTo,
     expiresAt: Date.now() + ciba.expiresIn * 1000,
     interval: ciba.interval,
   };
+  const bindToken = wantsJson ? undefined : base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  pending.binding = bindToken ? { cookieHash: await sha256(bindToken) } : ip ? { ip } : undefined;
   const handle = await seal(pending, config.stateSecret);
   console.log(JSON.stringify({
     event: "connect_started",
@@ -89,7 +106,13 @@ async function connect(request: Request, config: Config): Promise<Response> {
     verified_by: agent.source,
   }));
 
-  if (!wantsJson) return waitingPage(config.siteName, { handle, code, interval: ciba.interval, returnTo, cookies: Boolean(config.cookies) });
+  if (!wantsJson) {
+    const page = waitingPage(config.siteName, { handle, code, interval: ciba.interval, returnTo, cookies: Boolean(config.cookies) });
+    const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+    page.headers.append("set-cookie",
+      `${BIND_COOKIE}=${bindToken}; Path=/status; Max-Age=${ciba.expiresIn}; HttpOnly${secure}; SameSite=Strict`);
+    return page;
+  }
   return json({
     handle,
     code,
@@ -102,9 +125,12 @@ async function connect(request: Request, config: Config): Promise<Response> {
   });
 }
 
-async function status(url: URL, config: Config): Promise<Response> {
+async function status(request: Request, url: URL, config: Config): Promise<Response> {
   const pending = await unseal(url.searchParams.get("handle") ?? "", config.stateSecret);
   if (!pending) return json({ status: "error", error: "unknown handle" }, 400);
+  if (!(await boundTo(pending, request))) {
+    return json({ status: "error", error: "This request was started from a different client." }, 403);
+  }
   if (Date.now() > pending.expiresAt) return json({ status: "expired" });
 
   const result = await pollToken(config, pending.clientId, pending.authReqId);
@@ -119,7 +145,12 @@ async function status(url: URL, config: Config): Promise<Response> {
   if (result.status === "approved") {
     const { refresh_token: refreshToken, ...token } = result.token;
     const response = json({ status: "approved", agent_id: pending.agentId, ...token });
-    await setSessionCookies(response, url, config, result.token, refreshToken && { refreshToken, clientId: pending.clientId, agentId: pending.agentId });
+    // A step-up's token is for one action, so it replaces the access cookie but leaves the
+    // refresh cookie from the original connection alone.
+    const refreshState = pending.stepUp || !refreshToken ? undefined : {
+      refreshToken, clientId: pending.clientId, agentId: pending.agentId, tier: pending.tier, signatureAgent: pending.signatureAgent,
+    };
+    await setSessionCookies(response, url, config, result.token, refreshState);
     return response;
   }
   return json(result);
@@ -190,6 +221,55 @@ async function refresh(request: Request, url: URL, config: Config): Promise<Resp
   return response;
 }
 
+/**
+ * Step-up for one action the agent's token doesn't allow, such as a purchase on a read-only
+ * connection. The store sends the agent here with a signed description of the action, so the
+ * approval message shows exactly what the store will do, and the agent can't change it.
+ */
+async function stepUp(request: Request, url: URL, config: Config): Promise<Response> {
+  if (!config.stepUpSecret) return json({ error: "not_found" }, 404);
+  const action = await verifySigned<{ email: string; amount: string; exp: number }>(
+    url.searchParams.get("request") ?? "", config.stepUpSecret,
+  );
+  if (!action || !EMAIL.test(action.email) || !/^\$\d+(\.\d{2})?$/.test(action.amount)) {
+    return json({ error: "invalid_request", message: "This approval link is invalid or expired. Go back and try again." }, 400);
+  }
+
+  // The agent's original connection says which client to use and how to name it.
+  const name = config.cookies?.refresh ?? "DSR";
+  const raw = (request.headers.get("cookie") ?? "").split(/;\s*/)
+    .find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1);
+  const connected = raw ? await unseal<RefreshState>(raw, config.stateSecret) : undefined;
+  const agent: Agent = connected?.tier
+    ? { tier: connected.tier, signatureAgent: connected.signatureAgent, source: "none" }
+    : await identify(request, undefined, config);
+  const clientId = connected?.clientId
+    ?? (agent.tier === "trusted" ? config.clients.trusted[agent.signatureAgent!] : config.clients[agent.tier]);
+  const agentId = connected?.agentId ?? `agt_${randomCode(16, "abcdefghijkmnpqrstuvwxyz23456789")}`;
+  const code = randomCode(6);
+  const returnTo = safeReturnTo(url.searchParams.get("return_to"));
+
+  const ciba = await startCiba(config, {
+    clientId,
+    email: action.email,
+    scope: config.stepUpScope,
+    bindingMessage: `${agentLabel(agent)} wants to place a ${action.amount} order at ${config.siteName}. Code ${code}`,
+  });
+  const bindToken = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const pending: PendingRequest = {
+    authReqId: ciba.authReqId, clientId, tier: agent.tier, signatureAgent: agent.signatureAgent, agentId, code, returnTo,
+    expiresAt: Date.now() + ciba.expiresIn * 1000, interval: ciba.interval, stepUp: true,
+    binding: { cookieHash: await sha256(bindToken) },
+  };
+  const handle = await seal(pending, config.stateSecret);
+  console.log(JSON.stringify({ event: "step_up_started", agent_id: agentId, tier: agent.tier, client_id: clientId, amount: action.amount }));
+
+  const page = waitingPage(config.siteName, { handle, code, interval: ciba.interval, returnTo, cookies: Boolean(config.cookies) });
+  const secure = url.protocol === "https:" ? "; Secure" : "";
+  page.headers.append("set-cookie", `${BIND_COOKIE}=${bindToken}; Path=/status; Max-Age=${ciba.expiresIn}; HttpOnly${secure}; SameSite=Strict`);
+  return page;
+}
+
 interface Agent {
   tier: Tier;
   signatureAgent?: string;
@@ -236,6 +316,33 @@ function jwks(config: Config): Response {
   if (!config.privateKey) return json({ keys: [] });
   const { d: _private, ...publicKey } = config.privateKey;
   return json({ keys: [{ ...publicKey, use: "sig", alg: "ES256" }] });
+}
+
+async function limited(limiter: RateLimiter | undefined, key: string | undefined): Promise<boolean> {
+  if (!limiter || !key) return false;
+  return !(await limiter.limit({ key })).success;
+}
+
+async function sha256(value: string): Promise<string> {
+  return base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", utf8(value))));
+}
+
+/** True when the request comes from the client the handle is tied to, or the handle isn't tied to one. */
+async function boundTo(pending: PendingRequest, request: Request): Promise<boolean> {
+  const binding = pending.binding;
+  if (!binding) return true;
+  if (binding.cookieHash) {
+    const token = (request.headers.get("cookie") ?? "").split(/;\s*/)
+      .find((part) => part.startsWith(`${BIND_COOKIE}=`))?.slice(BIND_COOKIE.length + 1);
+    return Boolean(token) && (await sha256(token!)) === binding.cookieHash;
+  }
+  return binding.ip === (request.headers.get("cf-connecting-ip") ?? undefined);
+}
+
+function withHeaders(response: Response, headers: Record<string, string>, status: number): Response {
+  const out = new Response(response.body, { status, headers: response.headers });
+  for (const [name, value] of Object.entries(headers)) out.headers.set(name, value);
+  return out;
 }
 
 function json(body: unknown, status = 200): Response {

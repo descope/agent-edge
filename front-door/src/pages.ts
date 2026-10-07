@@ -23,7 +23,7 @@ function page(title: string, body: string): Response {
 </head>
 <body>
 ${body}
-<p class="demo">Demo front door. Descope's hosted front door will replace this page.</p>
+<p class="demo">Agent front door from Agent Edge.</p>
 </body>
 </html>`;
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });

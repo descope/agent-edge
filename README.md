@@ -1,13 +1,13 @@
-# agent-ready
+# Agent Edge
 
-Edge integrations that make a website ready for AI agents with [Descope](https://www.descope.com), without changing the app behind it.
+Agent Edge lets your customers' AI agents into your site through a sign-in path of their own, with [Descope](https://www.descope.com) as the authorization server, and without changing your site's login. It runs at the edge, in front of your site, and sends agents to the **front door**, where the customer approves them.
 
-Each integration runs in front of a site and does the same jobs:
+Each edge integration does the same jobs:
 
 - Verifies AI agents with Web Bot Auth, falling back to platform bot signals and user-agent hints.
-- Serves discovery files (`/.well-known/oauth-protected-resource`, `/auth.md`, `/agents`) that point agents at a Descope authorization server.
+- Serves the protected resource metadata (`/.well-known/oauth-protected-resource`) and an `/agents` page that point agents at a Descope authorization server.
 - Adds a `resource_metadata` `WWW-Authenticate` challenge to API 401s so MCP and OAuth clients find Descope on their own.
-- Adds an agent hint to login pages, and will route agents to a Descope-hosted front door once it's available.
+- Adds an agent hint to login pages, sends agents to the front door, and blocks them from pages they shouldn't use.
 
 Integrations start in monitor mode and fail open, so they can be deployed safely before they change any traffic.
 
@@ -19,7 +19,7 @@ When an AI agent reaches a login page today, it asks the user for their password
 flowchart LR
   agent[AI agent] --> edge[Edge integration]
   edge -- "discovery files" --> agent
-  edge -. "login page: redirect (coming soon)" .-> door[Descope front door]
+  edge -- "login page: redirect" --> door[Front door]
   edge -- "everything else, with agent headers" --> site[Your site]
   site -- "401 from API" --> edge
   edge -- "401 + resource_metadata" --> agent
@@ -30,7 +30,7 @@ flowchart LR
 
 The integration runs at the edge, in front of your site. For each request it:
 
-1. **Answers discovery requests itself.** `/.well-known/oauth-protected-resource`, `/auth.md` (also at `/.well-known/auth.md`), and `/agents` are served at the edge and point to your Descope project, so your origin never sees them.
+1. **Answers discovery requests itself.** `/.well-known/oauth-protected-resource` and `/agents` are served at the edge and point to your Descope project, so your origin never sees them.
 2. **Checks whether the caller is an agent.** A valid Web Bot Auth signature, checked against the agent platform's published keys, marks the request `verified`. Without one, the platform's own bot signals and user-agent hints can still flag it, usually as `unverified`.
 3. **Decides what to do.** In monitor mode it logs the agent and passes the request through. In route mode it also returns a 403 on paths agents may never use, such as password and payment changes. Once the front door is available, route mode will also redirect agents on login pages there.
 4. **Forwards everything else** to your site, with `x-descope-agent` and `x-descope-agent-origin` headers so your app knows which requests came from agents.
@@ -71,9 +71,7 @@ sequenceDiagram
   S-->>A: 200
 ```
 
-### Agents that can't open a browser (coming soon)
-
-> This path needs the Descope-hosted front door, which isn't available yet. The diagram shows how it will work.
+### Agents that can't open a browser
 
 Computer use agents in a cloud VM and agents people reach over text message can't send the user to a sign-in page. They go through the front door, which asks the user for approval on their own device with CIBA.
 
@@ -110,20 +108,20 @@ sequenceDiagram
   S-->>A: Response
 ```
 
-The front door serves the page with the email field, so the edge integration never handles the user's email. Browser agents fill it in like any form. Agents that read `/auth.md` or `/agents` instead of the login page get pointed to the same page, starting at step 4.
+The front door serves the page with the email field, so the edge integration never handles the user's email. Browser agents fill it in like any form. Agents that go to `/agents` instead of the login page get pointed to the same page, starting at step 4.
 
-What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead. The front door sets the access token as a cookie on your domain, so the agent's browser sends it on every request without adding a header. Your site has to accept the token from that cookie. See [Browser agents get a session cookie](demo/front-door/README.md#browser-agents-get-a-session-cookie).
+What happens after approval depends on the agent. An agent that calls your API uses the token directly, as above. A computer use agent that keeps browsing your website needs a web session instead. The front door sets the access token as a cookie on your domain, so the agent's browser sends it on every request without adding a header. Your site has to accept the token from that cookie. See [Browser agents get a session cookie](front-door/README.md#browser-agents-get-a-session-cookie).
 
 ### What the user sees when approving
 
 CIBA doesn't skip signing in. The approval link opens a Descope flow, the CIBA approval flow you choose on the inbound app, and that flow does three things:
 
-1. **Signs the user in.** Use any method Descope supports: social or OAuth sign-in (Google, Apple), a magic link, a one-time code by email or text, or a passkey. To keep users on the login they already have, replace Descope's sign-in step with your own using the **External Authentication** action in the flow. Users then approve with the same account and credentials they use on your site today.
+1. **Signs the user in.** Pick something that needs no setup, so approving takes seconds: a one-time code sent to the same email as the approval, a magic link, or social sign-in such as Google. To keep users on the login they already have, replace Descope's sign-in step with your own using the **External Authentication** action in the flow. Users then approve with the same account and credentials they use on your site today.
 2. **Shows the consent screen.** This is the step that makes delegation meaningful. It tells the user, in plain language:
    - **which agent is asking**, and whether its platform was verified
    - **what it will be able to do**: the scopes requested
    - **the binding message**, including the short code the agent also shows the user, so they can check the request is theirs
-   - **any limits in `authorization_details` (RAR)**, such as "up to $200 at Northbound over the next 7 days"
+   - **any limits**, from Rich Authorization Requests (RAR) once your authorization server supports them, such as "up to $200 at Northbound over the next 7 days"
 
    Consent only carries weight when the user can tell what they agreed to, so design this screen to be read, not clicked through.
 3. **Records the decision.** The flow's CIBA Approval step marks the request approved or denied. The agent, which has been polling, gets its token or a refusal.
@@ -147,7 +145,9 @@ Either way, check the signature, issuer, audience, and expiry, and accept Descop
 - **Enforce the limits.** Compare actions against the scopes and `authorization_details` in the token, for example rejecting a checkout above the approved amount with a 403 the agent can relay to the user.
 - **Keep sensitive actions human-only.** Refuse password and payment method changes from any token that has an `act` claim.
 - **Record the agent on every write,** so support can see which actions came from the customer and which came from their agent.
-- **Ask for step-up on high-risk actions.** When an order crosses a threshold, start a new CIBA request for that specific order.
+- **Ask for step-up when the token isn't enough.** Your app decides which actions need the customer's approval, because only it knows what an action means, such as an order's total. When a token doesn't allow the action, ask for more instead of just refusing:
+  - **For browser agents,** redirect to the front door's `/step-up` with a signed description of the action. The customer approves that exact action through Descope, and the agent comes back with a token that allows it. In Northbound, that's three lines at checkout and a small signing helper. See [Step-up for purchases](front-door/README.md#step-up-for-purchases) for the flow.
+  - **For APIs,** return `403` with `WWW-Authenticate: Bearer error="insufficient_scope", scope="orders:write"` (RFC 6750). OAuth and MCP clients read that and ask the customer for the extra scope.
 
 The `x-descope-agent` headers are useful for logging and for treating unauthenticated agent traffic differently. Base authorization decisions on the token, not the headers.
 
@@ -161,6 +161,6 @@ The `x-descope-agent` headers are useful for logging and for treating unauthenti
 
 Each platform folder is a self-contained project with its own dependencies, tests, and README. Code is not shared between platforms yet; a common core may be extracted once a second platform exists.
 
-## Demo
+## Front door
 
-[`demo/front-door/`](demo/front-door/) is a stand-in for the Descope-hosted front door, so you can demo the full flow for agents that can't open a browser before the real one ships. It makes real Descope CIBA requests.
+[`front-door/`](front-door/) is a reference implementation of the agent front door: a Cloudflare Worker that gets the user's approval with real Descope CIBA requests, signs browser agents in with a session cookie, connects agents read-only, and runs step-up approvals when the store needs one for a purchase. A hosted front door is coming soon from Descope.

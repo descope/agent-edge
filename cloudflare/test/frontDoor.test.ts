@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { loadConfig, type Env } from "../src/config";
-import { agentsPage, authMd } from "../src/discovery";
+import { agentsPage } from "../src/discovery";
 import worker from "../src/index";
 
-// The hosted front door isn't available yet, so everything else has to work without it.
+// Without a front door configured, everything else still has to work.
 const env: Env = {
   DESCOPE_ISSUER: "https://api.descope.com/P123",
   RESOURCE_URL: "https://example.com/api",
@@ -24,14 +24,12 @@ test("the front door URL is optional", () => {
   assert.equal(loadConfig(env).frontDoorUrl, undefined);
 });
 
-test("auth.md and /agents don't mention a front door that isn't configured", async () => {
+test("/agents doesn't mention a front door that isn't configured", async () => {
   const config = loadConfig(env);
-  const md = await authMd(config).text();
-  assert.doesNotMatch(md, /start a connection/);
-  assert.match(md, /oauth-protected-resource/);
   const html = await agentsPage(config).text();
   assert.doesNotMatch(html, /Connect your agent/);
-  assert.match(html, /auth\.md/);
+  assert.match(html, /\/\.well-known\/oauth-protected-resource/);
+  assert.doesNotMatch(html, /auth\.md/);
 });
 
 test("without a front door, agents on login pages pass through in route mode", async () => {
@@ -58,7 +56,8 @@ test("without a front door, the login hint doesn't send agents away from the for
   const markup = loginHintMarkup(loadConfig(env));
   assert.doesNotMatch(markup, /do not use this sign-in form/);
   assert.doesNotMatch(markup, /data-descope-agent-link/);
-  assert.match(markup, /\/auth\.md/);
+  assert.match(markup, /\/\.well-known\/oauth-protected-resource/);
+  assert.doesNotMatch(markup, /auth\.md/);
 });
 
 test("with a front door, the login hint points agents to /agents", async () => {
@@ -137,19 +136,7 @@ test("/agents passes a recognized agent's signed hint through the Connect button
   assert.doesNotMatch(personHtml, /agent_hint/);
 });
 
-test("auth.md tells agents without a browser how to use the front door", async () => {
-  const md = await authMd(loadConfig({ ...env, FRONT_DOOR_URL: "https://agents.example.com" })).text();
-  assert.match(md, /POST https:\/\/agents\.example\.com\/connect/);
-  assert.match(md, /status_url/);
-});
 
-test("auth.md is also served at /.well-known/auth.md", async () => {
-  globalThis.fetch = (async () => { throw new Error("should not reach the origin"); }) as typeof fetch;
-  const response = await worker.fetch(new Request("https://example.com/.well-known/auth.md") as never, env, ctx);
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /text\/markdown/);
-  assert.match(await response.text(), /# Authentication for AI agents/);
-});
 
 test("a request that loops back to the worker fails fast with a hint about UPSTREAM_ORIGIN", async () => {
   let calls = 0;
@@ -163,4 +150,17 @@ test("a request that loops back to the worker fails fast with a hint about UPSTR
   assert.equal(response.status, 508);
   assert.match(await response.text(), /UPSTREAM_ORIGIN/);
   assert.ok(calls <= 2, `forwarded ${calls} times`);
+});
+
+test("auth.md isn't served by the worker; requests for it go to the site", async () => {
+  const forwarded: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    forwarded.push(new Request(input as RequestInfo).url);
+    return new Response("site's own", { status: 404 });
+  }) as typeof fetch;
+  for (const path of ["/auth.md", "/.well-known/auth.md"]) {
+    const response = await worker.fetch(new Request(`https://example.com${path}`) as never, env, ctx);
+    assert.equal(await response.text(), "site's own");
+  }
+  assert.deepEqual(forwarded, ["https://example.com/auth.md", "https://example.com/.well-known/auth.md"]);
 });
