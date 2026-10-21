@@ -5,7 +5,11 @@ export interface Env {
   /** The agent front door. Optional. */
   FRONT_DOOR_URL?: string;
   RESOURCE_URL: string;
+  /** The organization's domain in the Poppy document. Defaults to the RESOURCE_URL host. */
+  SITE_DOMAIN?: string;
   SCOPES_SUPPORTED?: string;
+  /** Scopes the Poppy document asks agents to request in the device flow. Defaults to openid. */
+  DEVICE_SCOPES?: string;
   AUTHORIZATION_DETAILS_TYPES?: string;
   LOGIN_PATHS?: string;
   BLOCKED_AGENT_PATHS?: string;
@@ -29,7 +33,9 @@ export interface Config {
   issuer: string;
   frontDoorUrl?: string;
   resourceUrl: string;
+  siteDomain: string;
   scopes: string[];
+  deviceScopes: string[];
   authorizationDetailsTypes: string[];
   loginPaths: string[];
   blockedAgentPaths: string[];
@@ -78,7 +84,10 @@ export function loadConfig(env: Env): Config {
     issuer: requiredUrl("DESCOPE_ISSUER", env.DESCOPE_ISSUER),
     frontDoorUrl: env.FRONT_DOOR_URL ? requiredUrl("FRONT_DOOR_URL", env.FRONT_DOOR_URL) : undefined,
     resourceUrl: requiredUrl("RESOURCE_URL", env.RESOURCE_URL),
+    siteDomain: env.SITE_DOMAIN?.trim() || new URL(requiredUrl("RESOURCE_URL", env.RESOURCE_URL)).host,
     scopes: list(env.SCOPES_SUPPORTED),
+    // A document that asked for no scopes would be useless, so an empty setting falls back.
+    deviceScopes: list(env.DEVICE_SCOPES || "openid"),
     authorizationDetailsTypes: list(env.AUTHORIZATION_DETAILS_TYPES),
     loginPaths: list(env.LOGIN_PATHS),
     blockedAgentPaths: list(env.BLOCKED_AGENT_PATHS),

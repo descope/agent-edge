@@ -26,6 +26,34 @@ export function protectedResourceMetadata(config: Config): Response {
   return Response.json(body, { headers: NO_STORE });
 }
 
+/** Where the Poppy discovery document lives. */
+export const POPPY_PATH = "/.well-known/poppy.json";
+
+/**
+ * Poppy discovery (0.1): one document that tells an agent who this site is and which
+ * authorization server to ask, so it can start the device flow without being told.
+ * The issuer is the same DESCOPE_ISSUER the protected resource metadata names, so the
+ * two documents can never point agents at different authorization servers.
+ */
+export function poppyDocument(config: Config): Response {
+  const body = {
+    protocol_version: "0.1",
+    organization: {
+      name: config.siteName,
+      domain: config.siteDomain,
+    },
+    auth: {
+      issuer: config.issuer,
+      device: {
+        scopes: config.deviceScopes,
+      },
+    },
+    // Reserved by the protocol for web-based agent auth, which this worker doesn't advertise.
+    web: {},
+  };
+  return Response.json(body, { headers: NO_STORE });
+}
+
 /**
  * The /agents page: a visible explanation, plus a button to the front door when there is one.
  * Everything on it is shown to people too, so agents read it as information, not as hidden

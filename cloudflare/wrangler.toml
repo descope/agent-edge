@@ -36,6 +36,12 @@ RESOURCE_URL = "https://example.com/api"
 SCOPES_SUPPORTED = "orders:read,cart:write"
 AUTHORIZATION_DETAILS_TYPES = "purchase"
 
+# The Poppy discovery document at /.well-known/poppy.json. It names your organization and
+# the same DESCOPE_ISSUER above, so agents can find the authorization server on their own.
+# SITE_DOMAIN defaults to the RESOURCE_URL host; set it when your API is on another host.
+# SITE_DOMAIN = "example.com"
+DEVICE_SCOPES = "openid"
+
 # Paths where a human would sign in. Agents that hit these get the login hint, and in route mode
 # get sent to the front door once FRONT_DOOR_URL is set.
 # A trailing * matches a prefix.

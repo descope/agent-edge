@@ -111,3 +111,18 @@ test("path-specific protected resource metadata is served", async () => {
   assert.equal(body.resource, "https://example.com/api");
   assert.deepEqual(body.authorization_servers, ["https://api.descope.com/P123"]);
 });
+
+test("the Poppy discovery document is served at the edge", async () => {
+  const res = await fetch(`${BASE}/.well-known/poppy.json`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("content-type"), "application/json");
+  const body = (await res.json()) as { protocol_version: string; auth: { issuer: string } };
+  assert.equal(body.protocol_version, "0.1");
+  assert.equal(body.auth.issuer, "https://api.descope.com/P123");
+});
+
+test("other .well-known paths still reach the origin", async () => {
+  // The worker claims two paths under /.well-known, not the whole prefix, so a site can
+  // serve its own files there.
+  assert.equal((await fetch(`${BASE}/.well-known/change-password`)).status, 404);
+});
