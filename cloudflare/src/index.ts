@@ -42,7 +42,7 @@ export default {
           url.pathname.startsWith("/.well-known/oauth-protected-resource/")) {
         return protectedResourceMetadata(config);
       }
-      if (url.pathname === POPPY_PATH) return poppyDocument(config);
+      if (url.pathname === POPPY_PATH) return poppyDocument(config, url);
     }
 
     let agent: AgentResult;

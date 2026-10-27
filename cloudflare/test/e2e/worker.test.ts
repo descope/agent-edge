@@ -46,6 +46,7 @@ before(async () => {
       "--var", "DESCOPE_ISSUER:https://api.descope.com/P123",
       "--var", `UPSTREAM_ORIGIN:http://127.0.0.1:${originPort}`,
       "--var", "MODE:monitor",
+      "--var", 'POPPY_APIS:[{"url": "/openapi.json", "description": "Buy things"}]',
     ],
     { stdio: "ignore" },
   );
@@ -116,9 +117,17 @@ test("the Poppy discovery document is served at the edge", async () => {
   const res = await fetch(`${BASE}/.well-known/poppy.json`);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("content-type"), "application/json");
-  const body = (await res.json()) as { protocol_version: string; auth: { issuer: string } };
+  const body = (await res.json()) as {
+    protocol_version: string;
+    auth: { issuer: string };
+    apis: { type: string; url: string }[];
+  };
   assert.equal(body.protocol_version, "0.1");
   assert.equal(body.auth.issuer, "https://api.descope.com/P123");
+  // Resolved against the host the request came in on, which here is the worker's own.
+  assert.deepEqual(body.apis, [
+    { type: "openapi", url: `${BASE}/openapi.json`, description: "Buy things" },
+  ]);
 });
 
 test("other .well-known paths still reach the origin", async () => {

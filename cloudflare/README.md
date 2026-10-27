@@ -67,6 +67,16 @@ You need a site proxied through Cloudflare, a Descope project, and Node.js 22.
 
 6. **Switch to route mode** with `MODE = "route"` and deploy again.
 
+An agent sent to your site reads the Poppy document before it reads anything else, and checks
+that `organization.domain` is the domain it was asked to open — so if `RESOURCE_URL` is on `www`
+or on an API host of its own, set `SITE_DOMAIN` to the bare domain people actually name.
+`POPPY_APIS` is what tells an agent which APIs you have:
+
+```toml
+SITE_DOMAIN = "example.com"
+POPPY_APIS = """[{"url": "/openapi.json", "description": "Browse the catalog and place orders"}]"""
+```
+
 The worker answers `/agents` and its two `/.well-known` discovery paths itself. Everything else under
 `/.well-known`, and every other path, goes to your site as it is, so a site that serves its own files
 there keeps serving them.
@@ -88,8 +98,9 @@ Then have your site accept the tokens. See [Accepting the tokens in your backend
 | `TRUST_CLOUDFLARE_VERIFIED_BOTS`, `CLOUDFLARE_AGENT_BOT_CATEGORIES` | Treat these Cloudflare-verified bots as verified agents |
 | `INJECT_LOGIN_HINT` | Adds a visible "Using an AI assistant?" box, linking to the front door, to login pages. On by default. |
 | `SCOPES_SUPPORTED`, `AUTHORIZATION_DETAILS_TYPES` | Listed in the protected resource metadata |
-| `SITE_DOMAIN` | The organization's domain in the Poppy document. Defaults to the `RESOURCE_URL` host. |
+| `SITE_DOMAIN` | The domain people name when they send an agent to you, written into the Poppy document. Defaults to the `RESOURCE_URL` host; set it when that host is not that domain, such as `www.example.com`. |
 | `DEVICE_SCOPES` | Scopes the Poppy document asks agents to request in the device flow. Defaults to `openid`. |
+| `POPPY_APIS` | APIs the Poppy document advertises, as JSON. Paths are resolved against the host it was asked for. |
 | `AGENT_SESSION_COOKIE` | The front door's session cookie. Defaults to `DS`. |
 | `UPSTREAM_ORIGIN` | Local testing only: the site to forward to |
 

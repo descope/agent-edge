@@ -34,8 +34,13 @@ export const POPPY_PATH = "/.well-known/poppy.json";
  * authorization server to ask, so it can start the device flow without being told.
  * The issuer is the same DESCOPE_ISSUER the protected resource metadata names, so the
  * two documents can never point agents at different authorization servers.
+ *
+ * `apis` is resolved against the origin the document was asked for, so a site reachable at
+ * both example.com and www.example.com advertises each visitor's own origin. Agents check
+ * that the APIs they fetch are on the site they opened, and a document served on one host
+ * naming another would fail that check.
  */
-export function poppyDocument(config: Config): Response {
+export function poppyDocument(config: Config, url: URL): Response {
   const body = {
     protocol_version: "0.1",
     organization: {
@@ -50,6 +55,10 @@ export function poppyDocument(config: Config): Response {
     },
     // Reserved by the protocol for web-based agent auth, which this worker doesn't advertise.
     web: {},
+    // Left out entirely when there is nothing to advertise, rather than sent as an empty list.
+    ...(config.apis.length
+      ? { apis: config.apis.map((api) => ({ ...api, url: new URL(api.url, url.origin).toString() })) }
+      : {}),
   };
   return Response.json(body, { headers: NO_STORE });
 }
