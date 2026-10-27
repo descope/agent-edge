@@ -5,7 +5,17 @@ export interface Env {
   /** The agent front door. Optional. */
   FRONT_DOOR_URL?: string;
   RESOURCE_URL: string;
+  /** The organization's domain in the Poppy document. Defaults to the RESOURCE_URL host. */
+  SITE_DOMAIN?: string;
   SCOPES_SUPPORTED?: string;
+  /** Scopes the Poppy document asks agents to request in the device flow. Defaults to openid. */
+  DEVICE_SCOPES?: string;
+  /**
+   * The APIs the Poppy document advertises, as a JSON array. Each entry needs a url, which may
+   * be a path on your own site, and may carry a type (default "openapi") and a description:
+   * [{"url": "/openapi.json", "description": "Browse and buy"}]
+   */
+  POPPY_APIS?: string;
   AUTHORIZATION_DETAILS_TYPES?: string;
   LOGIN_PATHS?: string;
   BLOCKED_AGENT_PATHS?: string;
@@ -23,13 +33,23 @@ export interface Env {
 
 export type Mode = "monitor" | "route";
 
+/** One entry in the Poppy document's `apis` list. */
+export interface PoppyApi {
+  type: string;
+  url: string;
+  description?: string;
+}
+
 export interface Config {
   mode: Mode;
   siteName: string;
   issuer: string;
   frontDoorUrl?: string;
   resourceUrl: string;
+  siteDomain: string;
   scopes: string[];
+  deviceScopes: string[];
+  apis: PoppyApi[];
   authorizationDetailsTypes: string[];
   loginPaths: string[];
   blockedAgentPaths: string[];
@@ -48,6 +68,40 @@ function list(value: string | undefined): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+/**
+ * The Poppy `apis` list. It is JSON rather than a comma-separated list because each entry
+ * carries a type, a URL and a description. A value that doesn't parse costs the site its API
+ * advertisement and nothing else: the rest of the document is still worth serving, so the
+ * problem is logged and the list is dropped.
+ */
+function poppyApis(value: string | undefined): PoppyApi[] {
+  if (!value?.trim()) return [];
+  const giveUp = (reason: string): PoppyApi[] => {
+    console.error(JSON.stringify({ event: "config_error", error: `POPPY_APIS ${reason}` }));
+    return [];
+  };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return giveUp("is not valid JSON");
+  }
+  if (!Array.isArray(parsed)) return giveUp("is not a JSON array");
+  return parsed.flatMap((entry) => {
+    const { type, url, description } = (entry ?? {}) as Record<string, unknown>;
+    // Checked here, with a base, so rendering the document later can resolve it without throwing.
+    if (typeof url !== "string" || !URL.canParse(url, "https://site.invalid")) {
+      giveUp(`entry ${JSON.stringify(entry)} has no usable url`);
+      return [];
+    }
+    return [{
+      type: typeof type === "string" && type ? type : "openapi",
+      url,
+      ...(typeof description === "string" && description ? { description } : {}),
+    }];
+  });
 }
 
 function required(name: keyof Env, value: string | undefined): string {
@@ -78,7 +132,11 @@ export function loadConfig(env: Env): Config {
     issuer: requiredUrl("DESCOPE_ISSUER", env.DESCOPE_ISSUER),
     frontDoorUrl: env.FRONT_DOOR_URL ? requiredUrl("FRONT_DOOR_URL", env.FRONT_DOOR_URL) : undefined,
     resourceUrl: requiredUrl("RESOURCE_URL", env.RESOURCE_URL),
+    siteDomain: env.SITE_DOMAIN?.trim() || new URL(requiredUrl("RESOURCE_URL", env.RESOURCE_URL)).host,
     scopes: list(env.SCOPES_SUPPORTED),
+    // A document that asked for no scopes would be useless, so an empty setting falls back.
+    deviceScopes: list(env.DEVICE_SCOPES || "openid"),
+    apis: poppyApis(env.POPPY_APIS),
     authorizationDetailsTypes: list(env.AUTHORIZATION_DETAILS_TYPES),
     loginPaths: list(env.LOGIN_PATHS),
     blockedAgentPaths: list(env.BLOCKED_AGENT_PATHS),

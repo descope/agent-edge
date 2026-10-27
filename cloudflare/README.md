@@ -19,7 +19,7 @@ flowchart LR
 ```
 
 - **Finds agents** by Web Bot Auth signature, the front door's session cookie, Cloudflare's verified bots, or their user agent.
-- **Shows them the way in:** an `/agents` page, the protected resource metadata, a visible box on your login pages, and a `resource_metadata` challenge on your API's 401s.
+- **Shows them the way in:** an `/agents` page, the protected resource metadata, the Poppy discovery document at `/.well-known/poppy.json`, a visible box on your login pages, and a `resource_metadata` challenge on your API's 401s.
 - **Routes them,** in route mode: agents on your login page go to the [front door](../front-door/), and pages such as payment methods return a 403.
 - **Tells your site** with `x-descope-agent` headers. Trust them only if your site is reachable only through Cloudflare.
 
@@ -67,6 +67,20 @@ You need a site proxied through Cloudflare, a Descope project, and Node.js 22.
 
 6. **Switch to route mode** with `MODE = "route"` and deploy again.
 
+An agent sent to your site reads the Poppy document before it reads anything else, and checks
+that `organization.domain` is the domain it was asked to open — so if `RESOURCE_URL` is on `www`
+or on an API host of its own, set `SITE_DOMAIN` to the bare domain people actually name.
+`POPPY_APIS` is what tells an agent which APIs you have:
+
+```toml
+SITE_DOMAIN = "example.com"
+POPPY_APIS = """[{"url": "/openapi.json", "description": "Browse the catalog and place orders"}]"""
+```
+
+The worker answers `/agents` and its two `/.well-known` discovery paths itself. Everything else under
+`/.well-known`, and every other path, goes to your site as it is, so a site that serves its own files
+there keeps serving them.
+
 Then have your site accept the tokens. See [Accepting the tokens in your backend](../README.md#accepting-the-tokens-in-your-backend).
 
 ## Settings
@@ -84,10 +98,13 @@ Then have your site accept the tokens. See [Accepting the tokens in your backend
 | `TRUST_CLOUDFLARE_VERIFIED_BOTS`, `CLOUDFLARE_AGENT_BOT_CATEGORIES` | Treat these Cloudflare-verified bots as verified agents |
 | `INJECT_LOGIN_HINT` | Adds a visible "Using an AI assistant?" box, linking to the front door, to login pages. On by default. |
 | `SCOPES_SUPPORTED`, `AUTHORIZATION_DETAILS_TYPES` | Listed in the protected resource metadata |
+| `SITE_DOMAIN` | The domain people name when they send an agent to you, written into the Poppy document. Defaults to the `RESOURCE_URL` host; set it when that host is not that domain, such as `www.example.com`. |
+| `DEVICE_SCOPES` | Scopes the Poppy document asks agents to request in the device flow. Defaults to `openid`. |
+| `POPPY_APIS` | APIs the Poppy document advertises, as JSON. Paths are resolved against the host it was asked for. |
 | `AGENT_SESSION_COOKIE` | The front door's session cookie. Defaults to `DS`. |
 | `UPSTREAM_ORIGIN` | Local testing only: the site to forward to |
 
-The code is in `src/`: `index.ts` handles each request, `agentDetection.ts` finds agents, `discovery.ts` serves `/agents` and the metadata, and `loginHint.ts` writes the login-page box. If your site already serves `/agents`, remove that route from `index.ts`.
+The code is in `src/`: `index.ts` handles each request, `agentDetection.ts` finds agents, `discovery.ts` serves `/agents`, the metadata and the Poppy document, and `loginHint.ts` writes the login-page box. If your site already serves `/agents`, remove that route from `index.ts`.
 
 ## Test it
 
