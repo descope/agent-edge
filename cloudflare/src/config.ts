@@ -17,6 +17,7 @@ export interface Env {
    * [{"url": "/openapi.json", "description": "Browse and buy"}]
    */
   POPPY_APIS?: string;
+  SUPPORTED_VERSIONS?: string;
   AUTHORIZATION_DETAILS_TYPES?: string;
   LOGIN_PATHS?: string;
   BLOCKED_AGENT_PATHS?: string;
@@ -31,6 +32,9 @@ export interface Env {
   /** The cookie the front door sets once an agent is signed in. Defaults to DS. */
   AGENT_SESSION_COOKIE?: string;
 }
+
+/** The Poppy draft this worker's own poppy.json follows. */
+export const POPPY_VERSION = "0.4";
 
 export type Mode = "monitor" | "route";
 
@@ -58,6 +62,8 @@ export interface Config {
   scopeDescriptions?: Record<string, string>;
   scopeHints?: Record<string, ScopeHint>;
   apis: PoppyApi[];
+  /** Older protocol versions served alongside the one poppy.json names (3.4). */
+  supportedVersions: string[];
   authorizationDetailsTypes: string[];
   loginPaths: string[];
   blockedAgentPaths: string[];
@@ -175,6 +181,33 @@ function poppyScopeHints(value: string | undefined): Record<string, ScopeHint> |
   return Object.keys(hints).length ? hints : undefined;
 }
 
+/**
+ * Older protocol versions to serve beside the current one (3.4).
+ *
+ * Pre-1.0 two versions are compatible only when major AND minor match, so an agent built
+ * against an older draft refuses the current document outright. Listing a version here
+ * serves that draft its own document at its own URL, and names it in supported_versions,
+ * which is how the protocol lets agents move at their own pace instead of being cut off
+ * by a draft bump.
+ *
+ * Entries must be major.minor, and must not repeat the version this worker publishes: a
+ * document cannot be an older alternative to itself.
+ */
+function supportedVersions(value: string | undefined, current: string): string[] {
+  const out: string[] = [];
+  for (const entry of list(value)) {
+    if (!/^\d+\.\d+$/.test(entry) || entry === current) {
+      console.error(JSON.stringify({
+        event: "config_error",
+        error: `SUPPORTED_VERSIONS entry ${JSON.stringify(entry)} is not an older major.minor version`,
+      }));
+      continue;
+    }
+    if (!out.includes(entry)) out.push(entry);
+  }
+  return out;
+}
+
 function required(name: keyof Env, value: string | undefined): string {
   if (!value || value.includes("YOUR_PROJECT_ID")) {
     throw new Error(`Missing configuration: set ${name} in wrangler.toml`);
@@ -208,6 +241,7 @@ export function loadConfig(env: Env): Config {
     scopeDescriptions: poppyScopes(env.POPPY_SCOPES),
     scopeHints: poppyScopeHints(env.POPPY_SCOPE_HINTS),
     apis: poppyApis(env.POPPY_APIS),
+    supportedVersions: supportedVersions(env.SUPPORTED_VERSIONS, POPPY_VERSION),
     authorizationDetailsTypes: list(env.AUTHORIZATION_DETAILS_TYPES),
     loginPaths: list(env.LOGIN_PATHS),
     blockedAgentPaths: list(env.BLOCKED_AGENT_PATHS),

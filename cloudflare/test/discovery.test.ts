@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { withResourceMetadata } from "../src/challenge";
 import { loadConfig, pathMatches, type Env } from "../src/config";
-import { metadataUrl, poppyCanonicalRedirect, poppyDocument, protectedResourceMetadata } from "../src/discovery";
+import { metadataUrl, poppyCanonicalRedirect, poppyDocument, protectedResourceMetadata, versionedPoppyPath } from "../src/discovery";
 import { loginHintMarkup } from "../src/loginHint";
 
 const env: Env = {
@@ -255,4 +255,62 @@ test("deeper subdomains come home too", () => {
     redirect("shop.eu.example.com")?.headers.get("location"),
     "https://example.com/.well-known/poppy.json",
   );
+});
+
+const SERVED = new URL("https://example.com/.well-known/poppy.json");
+const withVersions = (v: string) => loadConfig({ ...env, SITE_DOMAIN: "example.com", SUPPORTED_VERSIONS: v });
+const docFor = async (cfg: ReturnType<typeof loadConfig>, version?: string) =>
+  (await poppyDocument(cfg, SERVED, version).json()) as Poppy & {
+    supported_versions?: Record<string, string>;
+  };
+
+test("the preferred document links the older versions it also serves", async () => {
+  const body = await docFor(withVersions("0.3"));
+  assert.equal(body.protocol_version, "0.4");
+  assert.deepEqual(body.supported_versions, {
+    "0.3": "https://example.com/poppy/0.3.json",
+  });
+});
+
+// 3.4: the linked document has the version it is listed under, and no supported_versions
+// of its own — otherwise an agent could walk a chain of them.
+test("an older document names its own version and links nothing", async () => {
+  const body = await docFor(withVersions("0.3"), "0.3");
+  assert.equal(body.protocol_version, "0.3");
+  assert.equal("supported_versions" in body, false);
+});
+
+// 3.4: every document served at the same time must agree on these two, or the Company's
+// identifier changes with the version and User IDs stop meaning the same thing.
+test("both documents name the same domain and the same issuer", async () => {
+  const cfg = withVersions("0.3");
+  const current = await docFor(cfg);
+  const older = await docFor(cfg, "0.3");
+  assert.equal(current.organization.domain, older.organization.domain);
+  assert.equal(current.auth.issuer, older.auth.issuer);
+});
+
+test("no supported_versions key when nothing older is served", async () => {
+  assert.equal("supported_versions" in (await docFor(withVersions(""))), false);
+});
+
+// The URL must be on the host that served poppy.json, so an uploaded file elsewhere
+// cannot be linked in as this Company's document.
+test("the linked URL sits on the host that served the document", async () => {
+  const body = await docFor(withVersions("0.3"));
+  assert.equal(new URL(body.supported_versions!["0.3"]).host, SERVED.host);
+});
+
+test("unusable version entries are dropped", async () => {
+  assert.deepEqual(withVersions("0.3, 0.2").supportedVersions, ["0.3", "0.2"]);
+  // Not major.minor.
+  assert.deepEqual(withVersions("nonsense,0.3.1,v0.3").supportedVersions, []);
+  // A document cannot be an older alternative to itself.
+  assert.deepEqual(withVersions("0.4").supportedVersions, []);
+  // Repeats collapse.
+  assert.deepEqual(withVersions("0.3,0.3").supportedVersions, ["0.3"]);
+});
+
+test("the versioned path is derived from the version", () => {
+  assert.equal(versionedPoppyPath("0.3"), "/poppy/0.3.json");
 });
