@@ -68,6 +68,12 @@ RESOURCE_URL = "https://example.com/api"
 
 # APIs to advertise to agents, as JSON. A url may be a path on your own site, and is resolved
 # against the host the document was asked for. Agents fetch these to learn what you offer.
+# Older protocol drafts to serve beside the current one. Pre-1.0 an agent refuses a
+# document whose major.minor it does not implement, so a draft bump cuts off every agent
+# that has not caught up. Each version listed here gets its own document at
+# /poppy/<version>.json and is named in supported_versions.
+# SUPPORTED_VERSIONS = "0.3"
+
 # POPPY_APIS = """[{"url": "/openapi.json", "description": "Browse the catalog and place orders"}]"""
 
 # Paths where a human would sign in. Agents that hit these get the login hint, and in route mode

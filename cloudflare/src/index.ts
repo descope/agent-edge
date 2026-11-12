@@ -1,7 +1,7 @@
 import { detectAgent, type AgentResult } from "./agentDetection";
 import { loadConfig, pathMatches, type Config, type Env } from "./config";
 import { addDiscoveryChallenge } from "./challenge";
-import { agentsPage, metadataUrl, POPPY_PATH, poppyCanonicalRedirect, poppyDocument, protectedResourceMetadata } from "./discovery";
+import { agentsPage, metadataUrl, POPPY_PATH, poppyCanonicalRedirect, poppyDocument, protectedResourceMetadata, versionedPoppyPath } from "./discovery";
 import { signAgentHint } from "./hint";
 import { cachedJsonFetcher } from "./keyCache";
 import { injectLoginHint } from "./loginHint";
@@ -44,6 +44,13 @@ export default {
       }
       if (url.pathname === POPPY_PATH) {
         return poppyCanonicalRedirect(config, url) ?? poppyDocument(config, url);
+      }
+      // An older draft's document, for agents that cannot read the current one. Served
+      // only for versions SUPPORTED_VERSIONS lists, so an unlisted path still reaches the
+      // site rather than inventing a document for a version this worker never named.
+      const older = config.supportedVersions.find((v) => url.pathname === versionedPoppyPath(v));
+      if (older !== undefined) {
+        return poppyCanonicalRedirect(config, url) ?? poppyDocument(config, url, older);
       }
     }
 
