@@ -39,6 +39,27 @@ export function protectedResourceMetadata(config: Config): Response {
 export const POPPY_PATH = "/.well-known/poppy.json";
 
 /**
+ * Sends a subdomain to the domain the document names, instead of answering there.
+ *
+ * A worker in front of both example.com and www.example.com answers on both, but the
+ * document names one domain. Served from the other it fails section 3.1's check that
+ * `organization.domain` is the host that served it, and a Personal Agent refuses it —
+ * correctly, since that rule is what stops a document being copied somewhere it doesn't
+ * speak for. Section 3 allows the redirect and names this exact case.
+ *
+ * ONLY SUBDOMAINS. An unrelated host keeps serving the document as configured: a worker
+ * on a staging domain, or on localhost under `wrangler dev`, should not bounce agents to
+ * production. It redirects www.example.com to example.com, and leaves anything that is
+ * not under the site domain alone.
+ */
+export function poppyCanonicalRedirect(config: Config, url: URL): Response | undefined {
+  const host = url.host.toLowerCase();
+  const domain = config.siteDomain.toLowerCase();
+  if (host === domain || !host.endsWith(`.${domain}`)) return undefined;
+  return Response.redirect(`https://${config.siteDomain}${POPPY_PATH}`, 301);
+}
+
+/**
  * Poppy discovery (draft 0.4): one document that tells an agent who this site is, what it
  * can ask for, and where to sign in, so it can start without being told.
  * https://personalagentprotocol.org/docs/0.4/spec

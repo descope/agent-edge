@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { withResourceMetadata } from "../src/challenge";
 import { loadConfig, pathMatches, type Env } from "../src/config";
-import { metadataUrl, poppyDocument, protectedResourceMetadata } from "../src/discovery";
+import { metadataUrl, poppyCanonicalRedirect, poppyDocument, protectedResourceMetadata } from "../src/discovery";
 import { loginHintMarkup } from "../src/loginHint";
 
 const env: Env = {
@@ -217,4 +217,42 @@ test("the login hint is a visible box that links to the front door and back to t
 test("the site name is escaped in the hint", () => {
   const markup = loginHintMarkup(loadConfig({ ...env, SITE_NAME: `<script>"x"</script>` }));
   assert.doesNotMatch(markup, /<script>/);
+});
+
+const redirect = (host: string, overrides: Partial<Env> = {}) =>
+  poppyCanonicalRedirect(
+    loadConfig({ ...env, SITE_DOMAIN: "example.com", ...overrides }),
+    new URL(`https://${host}/.well-known/poppy.json`),
+  );
+
+// The document names one domain. Served from another host it fails 3.1's check that
+// organization.domain is the host that served it, and an agent refuses it.
+test("a subdomain redirects to the domain the document names", () => {
+  const res = redirect("www.example.com");
+  assert.equal(res?.status, 301);
+  assert.equal(res?.headers.get("location"), "https://example.com/.well-known/poppy.json");
+});
+
+test("the domain itself serves the document rather than redirecting", () => {
+  assert.equal(redirect("example.com"), undefined);
+});
+
+// A worker on a staging domain, or on localhost under `wrangler dev`, must not bounce
+// agents to production.
+test("an unrelated host is left alone", () => {
+  assert.equal(redirect("localhost:8787"), undefined);
+  assert.equal(redirect("staging.example.net"), undefined);
+  assert.equal(redirect("notexample.com"), undefined);
+});
+
+test("host comparison ignores case", () => {
+  assert.equal(redirect("WWW.Example.COM")?.status, 301);
+  assert.equal(redirect("EXAMPLE.com"), undefined);
+});
+
+test("deeper subdomains come home too", () => {
+  assert.equal(
+    redirect("shop.eu.example.com")?.headers.get("location"),
+    "https://example.com/.well-known/poppy.json",
+  );
 });

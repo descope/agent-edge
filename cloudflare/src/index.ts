@@ -1,7 +1,7 @@
 import { detectAgent, type AgentResult } from "./agentDetection";
 import { loadConfig, pathMatches, type Config, type Env } from "./config";
 import { addDiscoveryChallenge } from "./challenge";
-import { agentsPage, metadataUrl, POPPY_PATH, poppyDocument, protectedResourceMetadata } from "./discovery";
+import { agentsPage, metadataUrl, POPPY_PATH, poppyCanonicalRedirect, poppyDocument, protectedResourceMetadata } from "./discovery";
 import { signAgentHint } from "./hint";
 import { cachedJsonFetcher } from "./keyCache";
 import { injectLoginHint } from "./loginHint";
@@ -42,7 +42,9 @@ export default {
           url.pathname.startsWith("/.well-known/oauth-protected-resource/")) {
         return protectedResourceMetadata(config);
       }
-      if (url.pathname === POPPY_PATH) return poppyDocument(config, url);
+      if (url.pathname === POPPY_PATH) {
+        return poppyCanonicalRedirect(config, url) ?? poppyDocument(config, url);
+      }
     }
 
     let agent: AgentResult;
