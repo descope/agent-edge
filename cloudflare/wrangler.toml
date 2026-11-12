@@ -32,9 +32,16 @@ DESCOPE_ISSUER = "https://api.descope.com/YOUR_PROJECT_ID"
 # The resource identifier agents request tokens for.
 RESOURCE_URL = "https://example.com/api"
 
-# Comma-separated lists.
-SCOPES_SUPPORTED = "orders:read,cart:write"
-AUTHORIZATION_DETAILS_TYPES = "purchase"
+# Comma-separated lists, published verbatim in your protected resource metadata.
+#
+# SET THESE TO SCOPES YOUR SITE ACTUALLY ACCEPTS. An agent reads this list to decide what
+# to ask for, so a scope listed here that your backend rejects sends it to get a token you
+# will refuse — a failure it cannot diagnose, because the list told it the scope was fine.
+# The values below are illustrations, not defaults; left commented out, both fields are
+# omitted from the metadata rather than published empty.
+#
+# SCOPES_SUPPORTED = "orders:read,orders:write"
+# AUTHORIZATION_DETAILS_TYPES = "purchase"
 
 # Paths where a human would sign in. Agents that hit these get the login hint, and in route mode
 # get sent to the front door once FRONT_DOOR_URL is set.

@@ -13,14 +13,23 @@ export function metadataUrl(config: Config): string {
   return `${resource.origin}/.well-known/oauth-protected-resource${path}`;
 }
 
-/** OAuth Protected Resource Metadata (RFC 9728), pointing agents at Descope. */
+/**
+ * OAuth Protected Resource Metadata (RFC 9728), pointing agents at Descope.
+ *
+ * ABSENT BEATS EMPTY. Both lists are OPTIONAL in RFC 9728 §2, and `"scopes_supported": []`
+ * is not the same statement as leaving it out: it claims this resource accepts no scopes at
+ * all. A site that hasn't listed its scopes yet has not made that claim, so neither does
+ * this document.
+ */
 export function protectedResourceMetadata(config: Config): Response {
   const body = {
     resource: config.resourceUrl,
     resource_name: config.siteName,
     authorization_servers: [config.issuer],
-    scopes_supported: config.scopes,
-    authorization_details_types_supported: config.authorizationDetailsTypes,
+    ...(config.scopes.length ? { scopes_supported: config.scopes } : {}),
+    ...(config.authorizationDetailsTypes.length
+      ? { authorization_details_types_supported: config.authorizationDetailsTypes }
+      : {}),
     bearer_methods_supported: ["header"],
   };
   return Response.json(body, { headers: NO_STORE });
