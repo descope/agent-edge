@@ -37,6 +37,12 @@ RESOURCE_URL = "https://example.com/api"
 # SET THESE TO SCOPES YOUR SITE ACTUALLY ACCEPTS. An agent reads this list to decide what
 # to ask for, so a scope listed here that your backend rejects sends it to get a token you
 # will refuse — a failure it cannot diagnose, because the list told it the scope was fine.
+#
+# Worth setting rather than leaving off. Poppy 0.4 (3.2) names this list as a place to
+# advertise the scopes personal agents can request, alongside your issuer's own metadata
+# or instead of it — which matters on a hosted issuer serving many sites, where that
+# metadata lists the issuer's scopes and cannot be tailored to yours.
+#
 # The values below are illustrations, not defaults; left commented out, both fields are
 # omitted from the metadata rather than published empty.
 #
