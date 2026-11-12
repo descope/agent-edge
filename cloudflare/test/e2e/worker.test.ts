@@ -46,6 +46,9 @@ before(async () => {
       "--var", "DESCOPE_ISSUER:https://api.descope.com/P123",
       "--var", `UPSTREAM_ORIGIN:http://127.0.0.1:${originPort}`,
       "--var", "MODE:monitor",
+      // The API lives on the host the worker is serving, as it does in production: a document
+      // is only served where the resource it names actually is.
+      "--var", `RESOURCE_URL:${BASE}/api`,
       "--var", 'POPPY_APIS:[{"url": "/openapi.json", "description": "Buy things"}]',
     ],
     { stdio: "ignore" },
@@ -74,7 +77,7 @@ test("a 401 from an API path gains the resource_metadata challenge", async () =>
   assert.equal(res.status, 401);
   assert.equal(
     res.headers.get("www-authenticate"),
-    'Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource/api"',
+    `Bearer resource_metadata="${BASE}/.well-known/oauth-protected-resource/api"`,
   );
   assert.equal(await res.text(), '{"error":"unauthorized"}');
 });
@@ -109,8 +112,23 @@ test("path-specific protected resource metadata is served", async () => {
   const res = await fetch(`${BASE}/.well-known/oauth-protected-resource/api`);
   assert.equal(res.status, 200);
   const body = (await res.json()) as { resource: string; authorization_servers: string[] };
-  assert.equal(body.resource, "https://example.com/api");
+  assert.equal(body.resource, `${BASE}/api`);
   assert.deepEqual(body.authorization_servers, ["https://api.descope.com/P123"]);
+});
+
+// What a Personal Agent fetches: it derives this URL from the Poppy document's
+// organization.domain and refuses a document that names anything else.
+test("the bare metadata path names the host that served it", async () => {
+  const res = await fetch(`${BASE}/.well-known/oauth-protected-resource`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { resource: string; authorization_servers: string[] };
+  assert.equal(body.resource, BASE);
+  assert.deepEqual(body.authorization_servers, ["https://api.descope.com/P123"]);
+});
+
+test("a metadata path for some other resource is a 404, not a wrong document", async () => {
+  const res = await fetch(`${BASE}/.well-known/oauth-protected-resource/nonsense`);
+  assert.equal(res.status, 404);
 });
 
 test("the Poppy discovery document is served at the edge", async () => {

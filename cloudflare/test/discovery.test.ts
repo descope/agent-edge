@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { withResourceMetadata } from "../src/challenge";
 import { loadConfig, pathMatches, type Env } from "../src/config";
-import { metadataUrl, poppyCanonicalRedirect, poppyDocument, protectedResourceMetadata } from "../src/discovery";
+import {
+  isResourceMetadataPath,
+  metadataUrl,
+  poppyCanonicalRedirect,
+  poppyDocument,
+  protectedResourceMetadata,
+  requestedResource,
+} from "../src/discovery";
 import { loginHintMarkup } from "../src/loginHint";
 
 const env: Env = {
@@ -23,8 +30,16 @@ interface Metadata {
   bearer_methods_supported: string[];
 }
 
+// The API's own document, at the path metadataUrl computes for RESOURCE_URL.
 const metadata = async (overrides: Partial<Env> = {}): Promise<Metadata> =>
-  (await protectedResourceMetadata(loadConfig({ ...env, ...overrides })).json()) as Metadata;
+  (await protectedResourceMetadata(loadConfig({ ...env, ...overrides }), new URL(META)).json()) as Metadata;
+
+// The site's own document, at the bare path, which is the one Poppy derives and checks.
+const siteMetadata = async (origin: string, overrides: Partial<Env> = {}): Promise<Metadata> =>
+  (await protectedResourceMetadata(
+    loadConfig({ ...env, ...overrides }),
+    new URL(`${origin}/.well-known/oauth-protected-resource`),
+  ).json()) as Metadata;
 
 test("the metadata lists the scopes it is given", async () => {
   const body = await metadata({
@@ -46,6 +61,52 @@ test("the metadata omits scope lists rather than publishing them empty", async (
   assert.equal(body.resource, "https://example.com/api");
   assert.deepEqual(body.authorization_servers, ["https://api.descope.com/P123"]);
   assert.deepEqual(body.bearer_methods_supported, ["header"]);
+});
+
+// The regression this file exists to hold: Poppy 0.4 section 3.2 builds this URL from
+// `organization.domain` and RFC 9728 section 3.3 makes the document declare that same URL.
+// Answering here with RESOURCE_URL is what made agents refuse northbound.camp's document.
+test("the bare well-known path names the host that served it", async () => {
+  assert.equal((await siteMetadata("https://example.com")).resource, "https://example.com");
+  // Served on another host, it speaks for that host, not for the one in RESOURCE_URL.
+  assert.equal((await siteMetadata("https://www.example.com")).resource, "https://www.example.com");
+  assert.equal((await siteMetadata("http://localhost:8787")).resource, "http://localhost:8787");
+});
+
+test("the site's document links the domain to the same issuer, with the same scopes", async () => {
+  const overrides = { SCOPES_SUPPORTED: "orders:read,orders:write" };
+  const site = await siteMetadata("https://example.com", overrides);
+  const api = await metadata(overrides);
+  assert.deepEqual(site.authorization_servers, api.authorization_servers);
+  assert.deepEqual(site.scopes_supported, ["orders:read", "orders:write"]);
+  assert.equal(site.resource_name, "Example Store");
+  // Only the resource differs, which is the whole point of serving two.
+  assert.notEqual(site.resource, api.resource);
+});
+
+test("the API's own path still names RESOURCE_URL", async () => {
+  assert.equal((await metadata()).resource, "https://example.com/api");
+});
+
+test("a path for a resource this worker doesn't serve is a 404", async () => {
+  const notOurs = async (url: string) =>
+    protectedResourceMetadata(config, new URL(url)).status;
+  assert.equal(await notOurs("https://example.com/.well-known/oauth-protected-resource/nonsense"), 404);
+  // The API lives on example.com; the same path on another host asks about another resource.
+  assert.equal(await notOurs("https://other.example/.well-known/oauth-protected-resource/api"), 404);
+});
+
+test("a trailing slash asks about the same resource", () => {
+  const bare = "https://example.com/.well-known/oauth-protected-resource";
+  assert.equal(requestedResource(new URL(`${bare}/`)), "https://example.com");
+  assert.equal(requestedResource(new URL(`${bare}/api/`)), "https://example.com/api");
+});
+
+test("the metadata paths are the bare one and everything under it", () => {
+  assert.equal(isResourceMetadataPath("/.well-known/oauth-protected-resource"), true);
+  assert.equal(isResourceMetadataPath("/.well-known/oauth-protected-resource/api"), true);
+  assert.equal(isResourceMetadataPath("/.well-known/oauth-protected-resource-other"), false);
+  assert.equal(isResourceMetadataPath("/.well-known/poppy.json"), false);
 });
 
 test("metadata URL follows RFC 9728 path insertion", () => {

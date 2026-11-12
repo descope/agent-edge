@@ -19,7 +19,7 @@ flowchart LR
 ```
 
 - **Finds agents** by Web Bot Auth signature, the front door's session cookie, Cloudflare's verified bots, or their user agent.
-- **Shows them the way in:** an `/agents` page, the protected resource metadata, the Poppy discovery document at `/.well-known/poppy.json`, a visible box on your login pages, and a `resource_metadata` challenge on your API's 401s.
+- **Shows them the way in:** an `/agents` page, the protected resource metadata for your site and for your API, the Poppy discovery document at `/.well-known/poppy.json`, a visible box on your login pages, and a `resource_metadata` challenge on your API's 401s.
 - **Routes them,** in route mode: agents on your login page go to the [front door](../front-door/), and pages such as payment methods return a 403.
 - **Tells your site** with `x-descope-agent` headers. Trust them only if your site is reachable only through Cloudflare.
 
@@ -77,9 +77,22 @@ SITE_DOMAIN = "example.com"
 POPPY_APIS = """[{"url": "/openapi.json", "description": "Browse the catalog and place orders"}]"""
 ```
 
-The worker answers `/agents` and its two `/.well-known` discovery paths itself. Everything else under
+The worker answers `/agents` and its `/.well-known` discovery paths itself. Everything else under
 `/.well-known`, and every other path, goes to your site as it is, so a site that serves its own files
 there keeps serving them.
+
+Two protected resource documents are published, because an agent and an API client ask about different
+resources. RFC 9728 §3.3 makes each document declare the resource the request was built from, so:
+
+| Path | `resource` |
+| --- | --- |
+| `/.well-known/oauth-protected-resource` | the host that served it — what a Personal Agent derives from your Poppy `organization.domain` and checks |
+| the path `RESOURCE_URL` maps to, such as `/.well-known/oauth-protected-resource/api` | `RESOURCE_URL`, which is what the 401 challenge points at |
+
+Both name the same `authorization_servers` and the same scopes: that is the link from your domain to
+your issuer, and on a hosted issuer the site's own metadata is the only place your scopes are
+published at all. Any other path under the prefix is a resource this worker does not speak for, and
+answers `404` rather than with a document naming something else.
 
 Then have your site accept the tokens. See [Accepting the tokens in your backend](../README.md#accepting-the-tokens-in-your-backend).
 
