@@ -2,6 +2,14 @@ import { POPPY_VERSION, type Config } from "./config";
 
 const NO_STORE = { "cache-control": "public, max-age=300" };
 
+/** Where the protected resource metadata lives. */
+export const RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource";
+
+/** The metadata path itself, and every resource path under it. */
+export function isResourceMetadataPath(pathname: string): boolean {
+  return pathname === RESOURCE_METADATA_PATH || pathname.startsWith(`${RESOURCE_METADATA_PATH}/`);
+}
+
 /**
  * Where the protected resource metadata lives, per RFC 9728: the well-known path
  * goes between the resource's origin and its path, so https://example.com/api
@@ -14,16 +22,53 @@ export function metadataUrl(config: Config): string {
 }
 
 /**
+ * Reads RFC 9728 section 3.1 backwards: the resource a metadata request is asking about is
+ * the request's own URL with the well-known segment taken out again. A trailing slash is
+ * dropped so /api/ and /api ask about the same resource, the way `requiredUrl` already
+ * normalizes the setting.
+ */
+export function requestedResource(url: URL): string {
+  return `${url.origin}${url.pathname.slice(RESOURCE_METADATA_PATH.length).replace(/\/+$/, "")}`;
+}
+
+/**
  * OAuth Protected Resource Metadata (RFC 9728), pointing agents at Descope.
+ *
+ * ONE DOCUMENT PER RESOURCE. Section 3.3 requires the `resource` returned to be the identifier
+ * the client built the request URL from, so this answers for the path it was asked about and
+ * not with one document everywhere. Two of them exist, and an agent needs a different one than
+ * an API client does:
+ *
+ *   - the site itself, at the bare path on whichever host served it. Poppy derives this URL
+ *     from `organization.domain` (0.4 section 3.2) and checks `resource` against it, so a
+ *     document naming the API here is one a Personal Agent refuses, and discovery stops.
+ *   - RESOURCE_URL, at the path `metadataUrl` computes. This is what the `WWW-Authenticate`
+ *     challenge on a 401 points at, and it is unchanged.
+ *
+ * Anything else under the prefix is a resource this worker does not speak for, and says so
+ * with a 404 rather than answering as something it is not.
+ *
+ * BOTH CARRY THE SCOPES. `authorization_servers` is the same in either document — that identity
+ * is what links the domain to the issuer — and so are the scope lists. Poppy 0.4 (3.2, 4.7) has
+ * agents read the scopes from the site's own metadata, and a hosted Descope app advertises only
+ * its OIDC scopes in its own metadata, so this document is the only place a site's real scopes
+ * are published. Dropping them from the domain's copy would leave agents nothing to ask for.
  *
  * ABSENT BEATS EMPTY. Both lists are OPTIONAL in RFC 9728 §2, and `"scopes_supported": []`
  * is not the same statement as leaving it out: it claims this resource accepts no scopes at
  * all. A site that hasn't listed its scopes yet has not made that claim, so neither does
  * this document.
  */
-export function protectedResourceMetadata(config: Config): Response {
+export function protectedResourceMetadata(config: Config, url: URL): Response {
+  const resource = requestedResource(url);
+  if (resource !== config.resourceUrl && resource !== url.origin) {
+    return new Response("Not Found", {
+      status: 404,
+      headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+    });
+  }
   const body = {
-    resource: config.resourceUrl,
+    resource,
     resource_name: config.siteName,
     authorization_servers: [config.issuer],
     ...(config.scopes.length ? { scopes_supported: config.scopes } : {}),
