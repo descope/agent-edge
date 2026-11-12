@@ -100,6 +100,7 @@ Then have your site accept the tokens. See [Accepting the tokens in your backend
 | `SCOPES_SUPPORTED`, `AUTHORIZATION_DETAILS_TYPES` | Listed in the protected resource metadata. Set them to what your site actually accepts — an agent asks for what this list names, and on a hosted issuer this is where it can find your scopes at all. Left unset, each is omitted rather than published empty. |
 | `SITE_DOMAIN` | The domain people name when they send an agent to you, written into the Poppy document. Defaults to the `RESOURCE_URL` host; set it when that host is not that domain, such as `www.example.com`. A request for the document on a subdomain of it redirects there, so a worker in front of both `example.com` and `www.example.com` serves the document from the one it names. |
 | `POPPY_SCOPES`, `POPPY_SCOPE_HINTS` | What each scope lets an agent do, and how consequential it is, written into the Poppy document as JSON |
+| `SUPPORTED_VERSIONS` | Older protocol drafts to serve beside the current one, comma separated, e.g. `0.3`. Each gets its own document at `/poppy/<version>.json`, named in `supported_versions`. Agents built against an older draft keep working instead of refusing the current document. |
 | `POPPY_APIS` | APIs the Poppy document advertises, as JSON. Paths are resolved against the host it was asked for. |
 | `AGENT_SESSION_COOKIE` | The front door's session cookie. Defaults to `DS`. |
 | `UPSTREAM_ORIGIN` | Local testing only: the site to forward to |
