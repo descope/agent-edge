@@ -29,7 +29,11 @@ test("metadata URL follows RFC 9728 path insertion", () => {
 interface Poppy {
   protocol_version: string;
   organization: { name: string; domain: string };
-  auth: { issuer: string; device: { scopes: string[] } };
+  auth: {
+    issuer: string;
+    scopes?: Record<string, string>;
+    scope_hints?: Record<string, { changes: string; personal_data: boolean }>;
+  };
   web: Record<string, unknown>;
   apis?: { type: string; url: string; description?: string }[];
 }
@@ -44,14 +48,24 @@ test("the Poppy document names the site and the configured issuer", async () => 
   assert.equal(response.headers.get("content-type"), "application/json");
   const body = (await response.json()) as Poppy;
   assert.deepEqual(body, {
-    protocol_version: "0.1",
+    protocol_version: "0.4",
     organization: { name: "Example Store", domain: "example.com" },
-    auth: {
-      issuer: "https://api.descope.com/P123",
-      device: { scopes: ["openid"] },
-    },
+    auth: { issuer: "https://api.descope.com/P123" },
     web: {},
   });
+});
+
+// Pre-1.0 the match has to be exact (3.4), so an agent on 0.4 refuses a 0.3 document
+// rather than reading it and ignoring what it doesn't know. Nothing else in this file
+// matters if this is wrong.
+test("the Poppy document declares draft 0.4", async () => {
+  assert.equal((await poppy()).protocol_version, "0.4");
+});
+
+// 0.1 advertised Device Sign-In here. 0.4 takes it from the authorization server's
+// grant_types_supported instead, so restating it would be inventing a field.
+test("the Poppy document carries no auth.device", async () => {
+  assert.equal("device" in (await poppy()).auth, false);
 });
 
 test("the Poppy issuer is the one the protected resource metadata names", async () => {
@@ -64,9 +78,37 @@ test("the Poppy domain comes from RESOURCE_URL, and SITE_DOMAIN overrides it", a
   assert.equal((await poppy({ SITE_DOMAIN: "example.com" })).organization.domain, "example.com");
 });
 
-test("device scopes default to openid and can be set", async () => {
-  assert.deepEqual((await poppy({ DEVICE_SCOPES: "openid,profile" })).auth.device.scopes, ["openid", "profile"]);
-  assert.deepEqual((await poppy({ DEVICE_SCOPES: "" })).auth.device.scopes, ["openid"]);
+test("scope descriptions and hints are published when set", async () => {
+  const body = await poppy({
+    POPPY_SCOPES: '{"orders:read": "See your orders", "orders:write": "Place an order"}',
+    POPPY_SCOPE_HINTS: '{"orders:read": {"changes": "none", "personal_data": true}}',
+  });
+  assert.deepEqual(body.auth.scopes, {
+    "orders:read": "See your orders",
+    "orders:write": "Place an order",
+  });
+  assert.deepEqual(body.auth.scope_hints, { "orders:read": { changes: "none", personal_data: true } });
+});
+
+// Absent beats empty: `scopes: {}` would claim the site describes its scopes and then
+// describe none of them.
+test("scope fields are omitted rather than sent empty", async () => {
+  const body = await poppy();
+  assert.equal("scopes" in body.auth, false);
+  assert.equal("scope_hints" in body.auth, false);
+  assert.equal("scopes" in (await poppy({ POPPY_SCOPES: "{}" })).auth, false);
+});
+
+// Same bargain POPPY_APIS makes: one unusable setting costs that field, not the document.
+test("unusable scope settings are dropped, not served", async () => {
+  assert.equal("scopes" in (await poppy({ POPPY_SCOPES: "not json" })).auth, false);
+  assert.equal("scopes" in (await poppy({ POPPY_SCOPES: '["orders:read"]' })).auth, false);
+
+  // A hint an agent cannot read is worse than no hint: it reads as a claim about risk.
+  const bad = await poppy({
+    POPPY_SCOPE_HINTS: '{"a": {"changes": "sometimes", "personal_data": true}, "b": {"changes": "none"}, "c": {"changes": "none", "personal_data": false}}',
+  });
+  assert.deepEqual(bad.auth.scope_hints, { c: { changes: "none", personal_data: false } });
 });
 
 test("advertised APIs carry a type and resolve against the host that was asked", async () => {

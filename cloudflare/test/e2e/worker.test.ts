@@ -122,7 +122,7 @@ test("the Poppy discovery document is served at the edge", async () => {
     auth: { issuer: string };
     apis: { type: string; url: string }[];
   };
-  assert.equal(body.protocol_version, "0.1");
+  assert.equal(body.protocol_version, "0.4");
   assert.equal(body.auth.issuer, "https://api.descope.com/P123");
   // Resolved against the host the request came in on, which here is the worker's own.
   assert.deepEqual(body.apis, [

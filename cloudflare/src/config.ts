@@ -9,7 +9,8 @@ export interface Env {
   SITE_DOMAIN?: string;
   SCOPES_SUPPORTED?: string;
   /** Scopes the Poppy document asks agents to request in the device flow. Defaults to openid. */
-  DEVICE_SCOPES?: string;
+  POPPY_SCOPES?: string;
+  POPPY_SCOPE_HINTS?: string;
   /**
    * The APIs the Poppy document advertises, as a JSON array. Each entry needs a url, which may
    * be a path on your own site, and may carry a type (default "openapi") and a description:
@@ -33,6 +34,12 @@ export interface Env {
 
 export type Mode = "monitor" | "route";
 
+/** One entry in the Poppy document's `auth.scope_hints` (4.7). */
+export interface ScopeHint {
+  changes: "none" | "reversible" | "irreversible";
+  personal_data: boolean;
+}
+
 /** One entry in the Poppy document's `apis` list. */
 export interface PoppyApi {
   type: string;
@@ -48,7 +55,8 @@ export interface Config {
   resourceUrl: string;
   siteDomain: string;
   scopes: string[];
-  deviceScopes: string[];
+  scopeDescriptions?: Record<string, string>;
+  scopeHints?: Record<string, ScopeHint>;
   apis: PoppyApi[];
   authorizationDetailsTypes: string[];
   loginPaths: string[];
@@ -104,6 +112,69 @@ function poppyApis(value: string | undefined): PoppyApi[] {
   });
 }
 
+/**
+ * A Poppy setting that is a JSON object. Shares POPPY_APIS's bargain: a value that doesn't
+ * parse costs the document that one field and nothing else, because the rest of it is still
+ * worth serving.
+ */
+function poppyObject(name: string, value: string | undefined): Record<string, unknown> | undefined {
+  if (!value?.trim()) return undefined;
+  const giveUp = (reason: string): undefined => {
+    console.error(JSON.stringify({ event: "config_error", error: `${name} ${reason}` }));
+    return undefined;
+  };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return giveUp("is not valid JSON");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return giveUp("is not a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/**
+ * `auth.scopes`: each scope mapped to the sentence a customer reads when they approve it
+ * (4.7). Prose, so it has to be JSON rather than a comma-separated list.
+ */
+function poppyScopes(value: string | undefined): Record<string, string> | undefined {
+  const parsed = poppyObject("POPPY_SCOPES", value);
+  if (!parsed) return undefined;
+  const scopes: Record<string, string> = {};
+  for (const [scope, description] of Object.entries(parsed)) {
+    if (typeof description === "string" && description) scopes[scope] = description;
+  }
+  return Object.keys(scopes).length ? scopes : undefined;
+}
+
+const CHANGES = ["none", "reversible", "irreversible"];
+
+/**
+ * `auth.scope_hints`: how consequential each scope is, so an agent can tell before it asks
+ * (4.7). An entry missing either field, or naming a `changes` value the protocol doesn't
+ * define, is dropped rather than passed through — a hint an agent can't read is worse than
+ * no hint, because the whole point of it is to be relied on.
+ */
+function poppyScopeHints(value: string | undefined): Record<string, ScopeHint> | undefined {
+  const parsed = poppyObject("POPPY_SCOPE_HINTS", value);
+  if (!parsed) return undefined;
+  const hints: Record<string, ScopeHint> = {};
+  for (const [scope, hint] of Object.entries(parsed)) {
+    const { changes, personal_data: personalData } = (hint ?? {}) as Record<string, unknown>;
+    if (typeof changes === "string" && CHANGES.includes(changes) && typeof personalData === "boolean") {
+      hints[scope] = { changes: changes as ScopeHint["changes"], personal_data: personalData };
+    } else {
+      console.error(JSON.stringify({
+        event: "config_error",
+        error: `POPPY_SCOPE_HINTS entry ${JSON.stringify(scope)} needs changes (${CHANGES.join("/")}) and personal_data`,
+      }));
+    }
+  }
+  return Object.keys(hints).length ? hints : undefined;
+}
+
 function required(name: keyof Env, value: string | undefined): string {
   if (!value || value.includes("YOUR_PROJECT_ID")) {
     throw new Error(`Missing configuration: set ${name} in wrangler.toml`);
@@ -134,8 +205,8 @@ export function loadConfig(env: Env): Config {
     resourceUrl: requiredUrl("RESOURCE_URL", env.RESOURCE_URL),
     siteDomain: env.SITE_DOMAIN?.trim() || new URL(requiredUrl("RESOURCE_URL", env.RESOURCE_URL)).host,
     scopes: list(env.SCOPES_SUPPORTED),
-    // A document that asked for no scopes would be useless, so an empty setting falls back.
-    deviceScopes: list(env.DEVICE_SCOPES || "openid"),
+    scopeDescriptions: poppyScopes(env.POPPY_SCOPES),
+    scopeHints: poppyScopeHints(env.POPPY_SCOPE_HINTS),
     apis: poppyApis(env.POPPY_APIS),
     authorizationDetailsTypes: list(env.AUTHORIZATION_DETAILS_TYPES),
     loginPaths: list(env.LOGIN_PATHS),
