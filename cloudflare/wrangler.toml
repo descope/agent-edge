@@ -32,9 +32,22 @@ DESCOPE_ISSUER = "https://api.descope.com/YOUR_PROJECT_ID"
 # The resource identifier agents request tokens for.
 RESOURCE_URL = "https://example.com/api"
 
-# Comma-separated lists.
-SCOPES_SUPPORTED = "orders:read,cart:write"
-AUTHORIZATION_DETAILS_TYPES = "purchase"
+# Comma-separated lists, published verbatim in your protected resource metadata.
+#
+# SET THESE TO SCOPES YOUR SITE ACTUALLY ACCEPTS. An agent reads this list to decide what
+# to ask for, so a scope listed here that your backend rejects sends it to get a token you
+# will refuse — a failure it cannot diagnose, because the list told it the scope was fine.
+#
+# Worth setting rather than leaving off. Poppy 0.4 (3.2) names this list as a place to
+# advertise the scopes personal agents can request, alongside your issuer's own metadata
+# or instead of it — which matters on a hosted issuer serving many sites, where that
+# metadata lists the issuer's scopes and cannot be tailored to yours.
+#
+# The values below are illustrations, not defaults; left commented out, both fields are
+# omitted from the metadata rather than published empty.
+#
+# SCOPES_SUPPORTED = "orders:read,orders:write"
+# AUTHORIZATION_DETAILS_TYPES = "purchase"
 
 # The Poppy discovery document at /.well-known/poppy.json. It names your organization and
 # the same DESCOPE_ISSUER above, so agents can find the authorization server on their own.

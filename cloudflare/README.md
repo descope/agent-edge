@@ -97,7 +97,7 @@ Then have your site accept the tokens. See [Accepting the tokens in your backend
 | `AGENT_USER_AGENT_PATTERNS` | User agents to treat as unverified agents |
 | `TRUST_CLOUDFLARE_VERIFIED_BOTS`, `CLOUDFLARE_AGENT_BOT_CATEGORIES` | Treat these Cloudflare-verified bots as verified agents |
 | `INJECT_LOGIN_HINT` | Adds a visible "Using an AI assistant?" box, linking to the front door, to login pages. On by default. |
-| `SCOPES_SUPPORTED`, `AUTHORIZATION_DETAILS_TYPES` | Listed in the protected resource metadata |
+| `SCOPES_SUPPORTED`, `AUTHORIZATION_DETAILS_TYPES` | Listed in the protected resource metadata. Set them to what your site actually accepts — an agent asks for what this list names, and on a hosted issuer this is where it can find your scopes at all. Left unset, each is omitted rather than published empty. |
 | `SITE_DOMAIN` | The domain people name when they send an agent to you, written into the Poppy document. Defaults to the `RESOURCE_URL` host; set it when that host is not that domain, such as `www.example.com`. |
 | `POPPY_SCOPES`, `POPPY_SCOPE_HINTS` | What each scope lets an agent do, and how consequential it is, written into the Poppy document as JSON |
 | `POPPY_APIS` | APIs the Poppy document advertises, as JSON. Paths are resolved against the host it was asked for. |

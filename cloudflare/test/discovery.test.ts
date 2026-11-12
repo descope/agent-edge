@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { withResourceMetadata } from "../src/challenge";
 import { loadConfig, pathMatches, type Env } from "../src/config";
-import { metadataUrl, poppyDocument } from "../src/discovery";
+import { metadataUrl, poppyDocument, protectedResourceMetadata } from "../src/discovery";
 import { loginHintMarkup } from "../src/loginHint";
 
 const env: Env = {
@@ -13,6 +13,40 @@ const env: Env = {
 };
 const config = loadConfig(env);
 const META = "https://example.com/.well-known/oauth-protected-resource/api";
+
+interface Metadata {
+  resource: string;
+  resource_name: string;
+  authorization_servers: string[];
+  scopes_supported?: string[];
+  authorization_details_types_supported?: string[];
+  bearer_methods_supported: string[];
+}
+
+const metadata = async (overrides: Partial<Env> = {}): Promise<Metadata> =>
+  (await protectedResourceMetadata(loadConfig({ ...env, ...overrides })).json()) as Metadata;
+
+test("the metadata lists the scopes it is given", async () => {
+  const body = await metadata({
+    SCOPES_SUPPORTED: "orders:read,orders:write",
+    AUTHORIZATION_DETAILS_TYPES: "purchase",
+  });
+  assert.deepEqual(body.scopes_supported, ["orders:read", "orders:write"]);
+  assert.deepEqual(body.authorization_details_types_supported, ["purchase"]);
+});
+
+// `"scopes_supported": []` is a claim that this resource accepts no scopes, which is a
+// different statement from a site that simply hasn't listed them. Both fields are OPTIONAL
+// in RFC 9728 §2, so an unset setting leaves them out.
+test("the metadata omits scope lists rather than publishing them empty", async () => {
+  const body = await metadata();
+  assert.equal("scopes_supported" in body, false);
+  assert.equal("authorization_details_types_supported" in body, false);
+  // Everything required is still there.
+  assert.equal(body.resource, "https://example.com/api");
+  assert.deepEqual(body.authorization_servers, ["https://api.descope.com/P123"]);
+  assert.deepEqual(body.bearer_methods_supported, ["header"]);
+});
 
 test("metadata URL follows RFC 9728 path insertion", () => {
   assert.equal(metadataUrl(config), META);
