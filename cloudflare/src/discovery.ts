@@ -1,4 +1,4 @@
-import type { Config } from "./config";
+import { POPPY_VERSION, type Config } from "./config";
 
 const NO_STORE = { "cache-control": "public, max-age=300" };
 
@@ -84,6 +84,15 @@ export function protectedResourceMetadata(config: Config, url: URL): Response {
 export const POPPY_PATH = "/.well-known/poppy.json";
 
 /**
+ * Where an older draft's document lives. Its path can be anything, unlike poppy.json's,
+ * because poppy.json names it (3.4) — but it must be on the host that served poppy.json,
+ * so a file uploaded elsewhere cannot be linked in as if it spoke for this domain.
+ */
+export function versionedPoppyPath(version: string): string {
+  return `/poppy/${version}.json`;
+}
+
+/**
  * Sends a subdomain to the domain the document names, instead of answering there.
  *
  * A worker in front of both example.com and www.example.com answers on both, but the
@@ -126,9 +135,19 @@ export function poppyCanonicalRedirect(config: Config, url: URL): Response | und
  * that the APIs they fetch are on the site they opened, and a document served on one host
  * naming another would fail that check.
  */
-export function poppyDocument(config: Config, url: URL): Response {
+export function poppyDocument(config: Config, url: URL, version: string = POPPY_VERSION): Response {
+  // Only the document this worker prefers links the others. An older draft's document
+  // carries the version it is listed under and no supported_versions of its own (3.4).
+  const alternates = version === POPPY_VERSION ? config.supportedVersions : [];
   const body = {
-    protocol_version: "0.4",
+    protocol_version: version,
+    ...(alternates.length
+      ? {
+          supported_versions: Object.fromEntries(
+            alternates.map((v) => [v, new URL(versionedPoppyPath(v), url.origin).toString()]),
+          ),
+        }
+      : {}),
     organization: {
       name: config.siteName,
       domain: config.siteDomain,

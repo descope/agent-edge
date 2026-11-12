@@ -10,6 +10,9 @@ import { after, before, test } from "node:test";
 const WORKER_PORT = 8799;
 const BASE = `http://localhost:${WORKER_PORT}`;
 const LOGIN_HTML = "<!doctype html><html><head><title>Sign in</title></head><body><form>Email</form></body></html>";
+// Only the site serves this. A /poppy/ path that comes back with it reached the origin;
+// the worker has no way to produce it, and the origin's 404 is not it either.
+const ORIGIN_POPPY = '{"served_by":"the site"}';
 
 let origin: Server;
 let worker: ChildProcess;
@@ -28,6 +31,9 @@ before(async () => {
     } else if (req.url === "/api/public") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end("[]");
+    } else if (req.url?.startsWith("/poppy/")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(ORIGIN_POPPY);
     } else if (req.url === "/account/settings") {
       res.writeHead(401);
       res.end();
@@ -50,6 +56,7 @@ before(async () => {
       // is only served where the resource it names actually is.
       "--var", `RESOURCE_URL:${BASE}/api`,
       "--var", 'POPPY_APIS:[{"url": "/openapi.json", "description": "Buy things"}]',
+      "--var", "SUPPORTED_VERSIONS:0.3",
     ],
     { stdio: "ignore" },
   );
@@ -139,6 +146,7 @@ test("the Poppy discovery document is served at the edge", async () => {
     protocol_version: string;
     auth: { issuer: string };
     apis: { type: string; url: string }[];
+    supported_versions: Record<string, string>;
   };
   assert.equal(body.protocol_version, "0.4");
   assert.equal(body.auth.issuer, "https://api.descope.com/P123");
@@ -146,10 +154,38 @@ test("the Poppy discovery document is served at the edge", async () => {
   assert.deepEqual(body.apis, [
     { type: "openapi", url: `${BASE}/openapi.json`, description: "Buy things" },
   ]);
+  // Section 3.4's cross-link, on the host that served this document.
+  assert.deepEqual(body.supported_versions, { "0.3": `${BASE}/poppy/0.3.json` });
 });
 
 test("other .well-known paths still reach the origin", async () => {
   // The worker claims two paths under /.well-known, not the whole prefix, so a site can
   // serve its own files there.
   assert.equal((await fetch(`${BASE}/.well-known/change-password`)).status, 404);
+});
+
+test("a listed older draft is served by the worker, not by the site", async () => {
+  const res = await fetch(`${BASE}/poppy/0.3.json`);
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.notEqual(text, ORIGIN_POPPY);
+  const body = JSON.parse(text) as { protocol_version: string; supported_versions?: unknown };
+  assert.equal(body.protocol_version, "0.3");
+  // The older document is a leaf: it links nothing, so there is no chain to walk.
+  assert.equal("supported_versions" in body, false);
+});
+
+// The routing matches only the versions SUPPORTED_VERSIONS lists. Without this, an `else`
+// or a reordering in the discovery block could start answering for versions this worker
+// never named, and every other test here would still pass.
+test("a version-shaped path that isn't listed reaches the site", async () => {
+  const res = await fetch(`${BASE}/poppy/0.2.json`);
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), ORIGIN_POPPY);
+});
+
+test("a /poppy/ path that isn't a version at all reaches the site", async () => {
+  const res = await fetch(`${BASE}/poppy/nonsense.json`);
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), ORIGIN_POPPY);
 });
