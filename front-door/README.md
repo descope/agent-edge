@@ -16,7 +16,7 @@ An example front door, deployed in front of [Northbound](https://github.com/desc
 2. **Set up the approval flow** that runs when the user opens the link. It signs them in and shows the consent screen. Use Descope sign-in (an email code or Google), or add the External Authentication action so users approve with their existing account on your site. It's your choice.
 3. **Define two scopes,** on the inbound app or on a resource. Their descriptions appear on the consent screen.
    - `orders:read`, such as "View your orders", requested when an agent connects.
-   - `orders:write`, such as "Place an order for you", requested at step-up. Give these tokens a short lifetime.
+   - `orders:write`, such as "Place an order for you", requested with `orders:read` at step-up, so the agent keeps its read access. Give these tokens a short lifetime.
 
    Tokens need `email` and `act` (the agent in `act.sub`). If the scopes are on a resource, set `RESOURCE` to it.
 4. **Copy the inbound app's Discovery URL** into `DESCOPE_DISCOVERY_URL`.
@@ -54,16 +54,16 @@ sequenceDiagram
   participant F as Front door
   participant D as Descope
   actor U as User
-  A->>S: Place order (token: orders:read)
+  A->>S: Place order (signed in, read-only)
   S-->>A: Redirect to /step-up with the order, signed
   A->>F: GET /step-up
-  F->>D: CIBA request for orders:write, naming the order
+  F->>D: CIBA request for orders:read and orders:write, naming the order
   D->>U: Approval email
   U->>D: Approves
   F->>D: Polls for the token
-  D-->>F: Short-lived token with orders:write
+  D-->>F: Short-lived token with orders:read and orders:write
   F-->>A: Replaces the cookie, then back to checkout
-  A->>S: Place order (token: orders:write)
+  A->>S: Place order again, now allowed
   S-->>A: Order confirmed
 ```
 

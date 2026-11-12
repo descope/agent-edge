@@ -47,7 +47,7 @@ VERIFIED_SCOPES = "openid orders:read"
 UNVERIFIED_SCOPES = "openid orders:read"
 
 # The scope a step-up asks for when the store sends an agent here to approve one purchase.
-STEP_UP_SCOPE = "openid orders:write"
+STEP_UP_SCOPE = "openid orders:read orders:write"
 
 # The resource (RFC 8707) the scopes above belong to in Descope, if any. When set, it's sent
 # with every device, CIBA, and token request.
