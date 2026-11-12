@@ -28,7 +28,7 @@ flowchart LR
 
 For each request, the edge integration:
 
-1. Serves `/agents` and `/.well-known/oauth-protected-resource` itself.
+1. Serves `/agents`, `/.well-known/oauth-protected-resource` and `/.well-known/poppy.json` itself. Every other path, `/.well-known` included, goes to your site unchanged.
 2. Checks whether the caller is an agent: a valid Web Bot Auth signature makes it `verified`; the front door's session cookie, Cloudflare's verified bots, or an agent-like user agent make it `unverified`.
 3. In route mode, sends agents on your login page to the front door and returns a 403 on pages agents shouldn't use, such as payment methods.
 4. Forwards everything else, adding `x-descope-agent` headers.
