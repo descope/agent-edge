@@ -49,6 +49,27 @@ RESOURCE_URL = "https://example.com/api"
 # SCOPES_SUPPORTED = "orders:read,orders:write"
 # AUTHORIZATION_DETAILS_TYPES = "purchase"
 
+# The Poppy discovery document at /.well-known/poppy.json. It names your organization and
+# the same DESCOPE_ISSUER above, so agents can find the authorization server on their own.
+#
+# SITE_DOMAIN is the domain people name when they send an agent to you. Agents compare it to
+# the host they were asked to open and reject the document if it differs, so set it whenever
+# the RESOURCE_URL host it defaults to is not that domain — most often because RESOURCE_URL
+# is on www or on a separate API host. "www.example.com" here never matches: an agent sent to
+# either example.com or www.example.com is looking for "example.com".
+# SITE_DOMAIN = "example.com"
+
+# Scopes agents ask for when they sign a customer in.
+# What each scope lets an agent do, in the words your customer approves, and how
+# consequential it is. JSON, because the descriptions are prose.
+# changes is none, reversible or irreversible; personal_data is true or false.
+# POPPY_SCOPES = """{"orders:read": "See your orders", "orders:write": "Place an order with your saved address and card"}"""
+# POPPY_SCOPE_HINTS = """{"orders:read": {"changes": "none", "personal_data": true}, "orders:write": {"changes": "irreversible", "personal_data": true}}"""
+
+# APIs to advertise to agents, as JSON. A url may be a path on your own site, and is resolved
+# against the host the document was asked for. Agents fetch these to learn what you offer.
+# POPPY_APIS = """[{"url": "/openapi.json", "description": "Browse the catalog and place orders"}]"""
+
 # Paths where a human would sign in. Agents that hit these get the login hint, and in route mode
 # get sent to the front door once FRONT_DOOR_URL is set.
 # A trailing * matches a prefix.

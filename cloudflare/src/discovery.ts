@@ -35,6 +35,58 @@ export function protectedResourceMetadata(config: Config): Response {
   return Response.json(body, { headers: NO_STORE });
 }
 
+/** Where the Poppy discovery document lives. */
+export const POPPY_PATH = "/.well-known/poppy.json";
+
+/**
+ * Poppy discovery (draft 0.4): one document that tells an agent who this site is, what it
+ * can ask for, and where to sign in, so it can start without being told.
+ * https://personalagentprotocol.org/docs/0.4/spec
+ *
+ * THE VERSION IS LOAD-BEARING. Before 1.0, two versions are compatible only when major AND
+ * minor match (3.4), so an agent that speaks 0.4 does not downgrade to a 0.3 document — it
+ * declines to use it. Bumping this string is not cosmetic, and neither is leaving it stale.
+ *
+ * `auth.device` is gone since 0.1. Device Sign-In is advertised by the authorization
+ * server's `grant_types_supported`, not here, so the document no longer restates it.
+ *
+ * `auth.issuer` is optional in 0.4 whenever the protected resource metadata names a single
+ * authorization server (3.1), which is exactly what this worker publishes. It is included
+ * anyway, from the same DESCOPE_ISSUER that metadata uses, so the two documents cannot
+ * point agents at different servers — which is the thing the rule exists to prevent.
+ *
+ * `apis` is resolved against the origin the document was asked for, so a site reachable at
+ * both example.com and www.example.com advertises each visitor's own origin. Agents check
+ * that the APIs they fetch are on the site they opened, and a document served on one host
+ * naming another would fail that check.
+ */
+export function poppyDocument(config: Config, url: URL): Response {
+  const body = {
+    protocol_version: "0.4",
+    organization: {
+      name: config.siteName,
+      domain: config.siteDomain,
+    },
+    auth: {
+      issuer: config.issuer,
+      // Omitted rather than sent empty: a scope map with nothing in it would claim the site
+      // describes its scopes and then describe none of them.
+      ...(config.scopeDescriptions ? { scopes: config.scopeDescriptions } : {}),
+      ...(config.scopeHints ? { scope_hints: config.scopeHints } : {}),
+    },
+    // The site is a website. 0.4 requires at least one of `agent`, `apis` or `web`, and
+    // leaving `browser_session_endpoint` out says agents browse it signed out (section 6),
+    // which is true of any site this worker fronts: the front door's cookie is Agent Edge's
+    // own mechanism, not the protocol's browser join.
+    web: {},
+    // Left out entirely when there is nothing to advertise, rather than sent as an empty list.
+    ...(config.apis.length
+      ? { apis: config.apis.map((api) => ({ ...api, url: new URL(api.url, url.origin).toString() })) }
+      : {}),
+  };
+  return Response.json(body, { headers: NO_STORE });
+}
+
 /**
  * The /agents page: a visible explanation, plus a button to the front door when there is one.
  * Everything on it is shown to people too, so agents read it as information, not as hidden
