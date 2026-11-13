@@ -2,7 +2,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { withResourceMetadata } from "../src/challenge";
 import { loadConfig, pathMatches, type Env } from "../src/config";
-import { metadataUrl, poppyDocument, protectedResourceMetadata } from "../src/discovery";
+import {
+  isResourceMetadataPath,
+  metadataUrl,
+  poppyCanonicalRedirect,
+  poppyDocument,
+  protectedResourceMetadata,
+  requestedResource,
+  versionedPoppyPath,
+} from "../src/discovery";
 import { loginHintMarkup } from "../src/loginHint";
 
 const env: Env = {
@@ -23,8 +31,16 @@ interface Metadata {
   bearer_methods_supported: string[];
 }
 
+// The API's own document, at the path metadataUrl computes for RESOURCE_URL.
 const metadata = async (overrides: Partial<Env> = {}): Promise<Metadata> =>
-  (await protectedResourceMetadata(loadConfig({ ...env, ...overrides })).json()) as Metadata;
+  (await protectedResourceMetadata(loadConfig({ ...env, ...overrides }), new URL(META)).json()) as Metadata;
+
+// The site's own document, at the bare path, which is the one Poppy derives and checks.
+const siteMetadata = async (origin: string, overrides: Partial<Env> = {}): Promise<Metadata> =>
+  (await protectedResourceMetadata(
+    loadConfig({ ...env, ...overrides }),
+    new URL(`${origin}/.well-known/oauth-protected-resource`),
+  ).json()) as Metadata;
 
 test("the metadata lists the scopes it is given", async () => {
   const body = await metadata({
@@ -46,6 +62,52 @@ test("the metadata omits scope lists rather than publishing them empty", async (
   assert.equal(body.resource, "https://example.com/api");
   assert.deepEqual(body.authorization_servers, ["https://api.descope.com/P123"]);
   assert.deepEqual(body.bearer_methods_supported, ["header"]);
+});
+
+// The regression this file exists to hold: Poppy 0.4 section 3.2 builds this URL from
+// `organization.domain` and RFC 9728 section 3.3 makes the document declare that same URL.
+// Answering here with RESOURCE_URL is what made agents refuse northbound.camp's document.
+test("the bare well-known path names the host that served it", async () => {
+  assert.equal((await siteMetadata("https://example.com")).resource, "https://example.com");
+  // Served on another host, it speaks for that host, not for the one in RESOURCE_URL.
+  assert.equal((await siteMetadata("https://www.example.com")).resource, "https://www.example.com");
+  assert.equal((await siteMetadata("http://localhost:8787")).resource, "http://localhost:8787");
+});
+
+test("the site's document links the domain to the same issuer, with the same scopes", async () => {
+  const overrides = { SCOPES_SUPPORTED: "orders:read,orders:write" };
+  const site = await siteMetadata("https://example.com", overrides);
+  const api = await metadata(overrides);
+  assert.deepEqual(site.authorization_servers, api.authorization_servers);
+  assert.deepEqual(site.scopes_supported, ["orders:read", "orders:write"]);
+  assert.equal(site.resource_name, "Example Store");
+  // Only the resource differs, which is the whole point of serving two.
+  assert.notEqual(site.resource, api.resource);
+});
+
+test("the API's own path still names RESOURCE_URL", async () => {
+  assert.equal((await metadata()).resource, "https://example.com/api");
+});
+
+test("a path for a resource this worker doesn't serve is a 404", async () => {
+  const notOurs = async (url: string) =>
+    protectedResourceMetadata(config, new URL(url)).status;
+  assert.equal(await notOurs("https://example.com/.well-known/oauth-protected-resource/nonsense"), 404);
+  // The API lives on example.com; the same path on another host asks about another resource.
+  assert.equal(await notOurs("https://other.example/.well-known/oauth-protected-resource/api"), 404);
+});
+
+test("a trailing slash asks about the same resource", () => {
+  const bare = "https://example.com/.well-known/oauth-protected-resource";
+  assert.equal(requestedResource(new URL(`${bare}/`)), "https://example.com");
+  assert.equal(requestedResource(new URL(`${bare}/api/`)), "https://example.com/api");
+});
+
+test("the metadata paths are the bare one and everything under it", () => {
+  assert.equal(isResourceMetadataPath("/.well-known/oauth-protected-resource"), true);
+  assert.equal(isResourceMetadataPath("/.well-known/oauth-protected-resource/api"), true);
+  assert.equal(isResourceMetadataPath("/.well-known/oauth-protected-resource-other"), false);
+  assert.equal(isResourceMetadataPath("/.well-known/poppy.json"), false);
 });
 
 test("metadata URL follows RFC 9728 path insertion", () => {
@@ -217,4 +279,100 @@ test("the login hint is a visible box that links to the front door and back to t
 test("the site name is escaped in the hint", () => {
   const markup = loginHintMarkup(loadConfig({ ...env, SITE_NAME: `<script>"x"</script>` }));
   assert.doesNotMatch(markup, /<script>/);
+});
+
+const redirect = (host: string, overrides: Partial<Env> = {}) =>
+  poppyCanonicalRedirect(
+    loadConfig({ ...env, SITE_DOMAIN: "example.com", ...overrides }),
+    new URL(`https://${host}/.well-known/poppy.json`),
+  );
+
+// The document names one domain. Served from another host it fails 3.1's check that
+// organization.domain is the host that served it, and an agent refuses it.
+test("a subdomain redirects to the domain the document names", () => {
+  const res = redirect("www.example.com");
+  assert.equal(res?.status, 301);
+  assert.equal(res?.headers.get("location"), "https://example.com/.well-known/poppy.json");
+});
+
+test("the domain itself serves the document rather than redirecting", () => {
+  assert.equal(redirect("example.com"), undefined);
+});
+
+// A worker on a staging domain, or on localhost under `wrangler dev`, must not bounce
+// agents to production.
+test("an unrelated host is left alone", () => {
+  assert.equal(redirect("localhost:8787"), undefined);
+  assert.equal(redirect("staging.example.net"), undefined);
+  assert.equal(redirect("notexample.com"), undefined);
+});
+
+test("host comparison ignores case", () => {
+  assert.equal(redirect("WWW.Example.COM")?.status, 301);
+  assert.equal(redirect("EXAMPLE.com"), undefined);
+});
+
+test("deeper subdomains come home too", () => {
+  assert.equal(
+    redirect("shop.eu.example.com")?.headers.get("location"),
+    "https://example.com/.well-known/poppy.json",
+  );
+});
+
+const SERVED = new URL("https://example.com/.well-known/poppy.json");
+const withVersions = (v: string) => loadConfig({ ...env, SITE_DOMAIN: "example.com", SUPPORTED_VERSIONS: v });
+const docFor = async (cfg: ReturnType<typeof loadConfig>, version?: string) =>
+  (await poppyDocument(cfg, SERVED, version).json()) as Poppy & {
+    supported_versions?: Record<string, string>;
+  };
+
+test("the preferred document links the older versions it also serves", async () => {
+  const body = await docFor(withVersions("0.3"));
+  assert.equal(body.protocol_version, "0.4");
+  assert.deepEqual(body.supported_versions, {
+    "0.3": "https://example.com/poppy/0.3.json",
+  });
+});
+
+// 3.4: the linked document has the version it is listed under, and no supported_versions
+// of its own — otherwise an agent could walk a chain of them.
+test("an older document names its own version and links nothing", async () => {
+  const body = await docFor(withVersions("0.3"), "0.3");
+  assert.equal(body.protocol_version, "0.3");
+  assert.equal("supported_versions" in body, false);
+});
+
+// 3.4: every document served at the same time must agree on these two, or the Company's
+// identifier changes with the version and User IDs stop meaning the same thing.
+test("both documents name the same domain and the same issuer", async () => {
+  const cfg = withVersions("0.3");
+  const current = await docFor(cfg);
+  const older = await docFor(cfg, "0.3");
+  assert.equal(current.organization.domain, older.organization.domain);
+  assert.equal(current.auth.issuer, older.auth.issuer);
+});
+
+test("no supported_versions key when nothing older is served", async () => {
+  assert.equal("supported_versions" in (await docFor(withVersions(""))), false);
+});
+
+// The URL must be on the host that served poppy.json, so an uploaded file elsewhere
+// cannot be linked in as this Company's document.
+test("the linked URL sits on the host that served the document", async () => {
+  const body = await docFor(withVersions("0.3"));
+  assert.equal(new URL(body.supported_versions!["0.3"]).host, SERVED.host);
+});
+
+test("unusable version entries are dropped", async () => {
+  assert.deepEqual(withVersions("0.3, 0.2").supportedVersions, ["0.3", "0.2"]);
+  // Not major.minor.
+  assert.deepEqual(withVersions("nonsense,0.3.1,v0.3").supportedVersions, []);
+  // A document cannot be an older alternative to itself.
+  assert.deepEqual(withVersions("0.4").supportedVersions, []);
+  // Repeats collapse.
+  assert.deepEqual(withVersions("0.3,0.3").supportedVersions, ["0.3"]);
+});
+
+test("the versioned path is derived from the version", () => {
+  assert.equal(versionedPoppyPath("0.3"), "/poppy/0.3.json");
 });

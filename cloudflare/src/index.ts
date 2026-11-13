@@ -1,7 +1,7 @@
 import { detectAgent, type AgentResult } from "./agentDetection";
 import { loadConfig, pathMatches, type Config, type Env } from "./config";
 import { addDiscoveryChallenge } from "./challenge";
-import { agentsPage, metadataUrl, POPPY_PATH, poppyDocument, protectedResourceMetadata } from "./discovery";
+import { agentsPage, isResourceMetadataPath, metadataUrl, POPPY_PATH, poppyCanonicalRedirect, poppyDocument, protectedResourceMetadata, versionedPoppyPath } from "./discovery";
 import { signAgentHint } from "./hint";
 import { cachedJsonFetcher } from "./keyCache";
 import { injectLoginHint } from "./loginHint";
@@ -38,11 +38,17 @@ export default {
 
     // Discovery files and the agent page, served without touching the origin.
     if (request.method === "GET" || request.method === "HEAD") {
-      if (url.pathname === "/.well-known/oauth-protected-resource" ||
-          url.pathname.startsWith("/.well-known/oauth-protected-resource/")) {
-        return protectedResourceMetadata(config);
+      if (isResourceMetadataPath(url.pathname)) return protectedResourceMetadata(config, url);
+      if (url.pathname === POPPY_PATH) {
+        return poppyCanonicalRedirect(config, url) ?? poppyDocument(config, url);
       }
-      if (url.pathname === POPPY_PATH) return poppyDocument(config, url);
+      // An older draft's document, for agents that cannot read the current one. Served
+      // only for versions SUPPORTED_VERSIONS lists, so an unlisted path still reaches the
+      // site rather than inventing a document for a version this worker never named.
+      const older = config.supportedVersions.find((v) => url.pathname === versionedPoppyPath(v));
+      if (older !== undefined) {
+        return poppyCanonicalRedirect(config, url) ?? poppyDocument(config, url, older);
+      }
     }
 
     let agent: AgentResult;

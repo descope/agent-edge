@@ -19,7 +19,7 @@ flowchart LR
 ```
 
 - **Finds agents** by Web Bot Auth signature, the front door's session cookie, Cloudflare's verified bots, or their user agent.
-- **Shows them the way in:** an `/agents` page, the protected resource metadata, the Poppy discovery document at `/.well-known/poppy.json`, a visible box on your login pages, and a `resource_metadata` challenge on your API's 401s.
+- **Shows them the way in:** an `/agents` page, the protected resource metadata for your site and for your API, the Poppy discovery document at `/.well-known/poppy.json`, a visible box on your login pages, and a `resource_metadata` challenge on your API's 401s.
 - **Routes them,** in route mode: agents on your login page go to the [front door](../front-door/), and pages such as payment methods return a 403.
 - **Tells your site** with `x-descope-agent` headers. Trust them only if your site is reachable only through Cloudflare.
 
@@ -77,9 +77,22 @@ SITE_DOMAIN = "example.com"
 POPPY_APIS = """[{"url": "/openapi.json", "description": "Browse the catalog and place orders"}]"""
 ```
 
-The worker answers `/agents` and its two `/.well-known` discovery paths itself. Everything else under
+The worker answers `/agents` and its `/.well-known` discovery paths itself. Everything else under
 `/.well-known`, and every other path, goes to your site as it is, so a site that serves its own files
 there keeps serving them.
+
+Two protected resource documents are published, because an agent and an API client ask about different
+resources. RFC 9728 §3.3 makes each document declare the resource the request was built from, so:
+
+| Path | `resource` |
+| --- | --- |
+| `/.well-known/oauth-protected-resource` | the host that served it — what a Personal Agent derives from your Poppy `organization.domain` and checks |
+| the path `RESOURCE_URL` maps to, such as `/.well-known/oauth-protected-resource/api` | `RESOURCE_URL`, which is what the 401 challenge points at |
+
+Both name the same `authorization_servers` and the same scopes: that is the link from your domain to
+your issuer, and on a hosted issuer the site's own metadata is the only place your scopes are
+published at all. Any other path under the prefix is a resource this worker does not speak for, and
+answers `404` rather than with a document naming something else.
 
 Then have your site accept the tokens. See [Accepting the tokens in your backend](../README.md#accepting-the-tokens-in-your-backend).
 
@@ -98,8 +111,9 @@ Then have your site accept the tokens. See [Accepting the tokens in your backend
 | `TRUST_CLOUDFLARE_VERIFIED_BOTS`, `CLOUDFLARE_AGENT_BOT_CATEGORIES` | Treat these Cloudflare-verified bots as verified agents |
 | `INJECT_LOGIN_HINT` | Adds a visible "Using an AI assistant?" box, linking to the front door, to login pages. On by default. |
 | `SCOPES_SUPPORTED`, `AUTHORIZATION_DETAILS_TYPES` | Listed in the protected resource metadata. Set them to what your site actually accepts — an agent asks for what this list names, and on a hosted issuer this is where it can find your scopes at all. Left unset, each is omitted rather than published empty. |
-| `SITE_DOMAIN` | The domain people name when they send an agent to you, written into the Poppy document. Defaults to the `RESOURCE_URL` host; set it when that host is not that domain, such as `www.example.com`. |
+| `SITE_DOMAIN` | The domain people name when they send an agent to you, written into the Poppy document. Defaults to the `RESOURCE_URL` host; set it when that host is not that domain, such as `www.example.com`. A request for the document on a subdomain of it redirects there, so a worker in front of both `example.com` and `www.example.com` serves the document from the one it names. |
 | `POPPY_SCOPES`, `POPPY_SCOPE_HINTS` | What each scope lets an agent do, and how consequential it is, written into the Poppy document as JSON |
+| `SUPPORTED_VERSIONS` | Older protocol drafts to serve beside the current one, comma separated, e.g. `0.3`. Each gets its own document at `/poppy/<version>.json`, named in `supported_versions`. Agents built against an older draft keep working instead of refusing the current document. |
 | `POPPY_APIS` | APIs the Poppy document advertises, as JSON. Paths are resolved against the host it was asked for. |
 | `AGENT_SESSION_COOKIE` | The front door's session cookie. Defaults to `DS`. |
 | `UPSTREAM_ORIGIN` | Local testing only: the site to forward to |
