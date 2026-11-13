@@ -118,7 +118,7 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
       clientId,
       email,
       scope,
-      bindingMessage: `${agentLabel(agent)} wants to ${config.access[agent.tier].replaceAll("{site}", config.siteName)}. Code ${code}`,
+      bindingMessage: `${agentLabel(agent, config)} wants to ${config.access[agent.tier].replaceAll("{site}", config.siteName)}. Code ${code}`,
     });
     started = { requestId: ciba.authReqId, code, expiresIn: ciba.expiresIn, interval: ciba.interval };
   }
@@ -314,7 +314,7 @@ async function stepUp(request: Request, url: URL, config: Config): Promise<Respo
       clientId,
       email: action.email,
       scope: config.stepUpScope,
-      bindingMessage: `${agentLabel(agent)} wants to place a ${action.amount} order at ${config.siteName}. Code ${code}`,
+      bindingMessage: `${agentLabel(agent, config)} wants to place a ${action.amount} order at ${config.siteName}. Code ${code}`,
     });
   } catch (error) {
     console.error(JSON.stringify({ event: "step_up_failed", client_id: clientId, error: String(error) }));
@@ -384,10 +384,12 @@ async function identify(request: Request, agentHint: string | undefined, config:
   return { tier: "unverified", source };
 }
 
-function agentLabel(agent: Agent): string {
+function agentLabel(agent: Agent, config: Config): string {
+  // Not overridable: a trusted agent is named by the Signature-Agent host it proved, and
+  // that name is evidence. The other two are description, and a deployment where a tier
+  // holds exactly one product can say which product it is.
   if (agent.tier === "trusted") return `An agent from ${new URL(agent.signatureAgent!).host}`;
-  if (agent.tier === "verified") return "A verified agent";
-  return "An unverified agent";
+  return config.names[agent.tier];
 }
 
 function safeReturnTo(value: string | null | undefined): string | undefined {
