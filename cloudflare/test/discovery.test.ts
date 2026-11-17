@@ -74,15 +74,32 @@ test("the bare well-known path names the host that served it", async () => {
   assert.equal((await siteMetadata("http://localhost:8787")).resource, "http://localhost:8787");
 });
 
-test("the site's document links the domain to the same issuer, with the same scopes", async () => {
+test("the site's document links the domain to the issuer, and claims no scopes of its own", async () => {
   const overrides = { SCOPES_SUPPORTED: "orders:read,orders:write" };
   const site = await siteMetadata("https://example.com", overrides);
   const api = await metadata(overrides);
+  // The link to the issuer is what both documents share. It is why the domain one exists.
   assert.deepEqual(site.authorization_servers, api.authorization_servers);
-  assert.deepEqual(site.scopes_supported, ["orders:read", "orders:write"]);
   assert.equal(site.resource_name, "Example Store");
-  // Only the resource differs, which is the whole point of serving two.
   assert.notEqual(site.resource, api.resource);
+
+  // The scopes are not shared. They say what a token for a resource may carry, and the
+  // domain is not a resource tokens are issued against here -- RESOURCE_URL is. Claiming
+  // them on the domain tells an agent to ask for scopes against an identifier the
+  // authorization server has nothing registered for, and every scope comes back invalid.
+  assert.equal(site.scopes_supported, undefined);
+  assert.equal(site.authorization_details_types_supported, undefined);
+  assert.deepEqual(api.scopes_supported, ["orders:read", "orders:write"]);
+});
+
+// A Company whose domain IS the resource has one document, not two, and it carries everything.
+test("when RESOURCE_URL is the origin, that one document keeps its scopes", async () => {
+  const site = await siteMetadata("https://example.com", {
+    RESOURCE_URL: "https://example.com",
+    SCOPES_SUPPORTED: "orders:read,orders:write",
+  });
+  assert.equal(site.resource, "https://example.com");
+  assert.deepEqual(site.scopes_supported, ["orders:read", "orders:write"]);
 });
 
 test("the API's own path still names RESOURCE_URL", async () => {

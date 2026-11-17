@@ -54,11 +54,28 @@ export function requestedResource(url: URL): string {
  * metadata falls back to the Company's default token, which is the wrong one the moment
  * that API sits behind a different issuer or expects a different audience.
  *
- * BOTH CARRY THE SCOPES. `authorization_servers` is the same in either document — that identity
- * is what links the domain to the issuer — and so are the scope lists. Poppy 0.4 (3.2, 4.7) has
- * agents read the scopes from the site's own metadata, and a hosted Descope app advertises only
- * its OIDC scopes in its own metadata, so this document is the only place a site's real scopes
- * are published. Dropping them from the domain's copy would leave agents nothing to ask for.
+ * ONLY THE RESOURCE CARRIES THE SCOPES. `authorization_servers` is the same in either document
+ * — that identity is what links the domain to the issuer — but the scope lists are not. They
+ * say what a token for THIS resource may carry, so they belong to the document that speaks for
+ * a resource tokens are actually issued against.
+ *
+ * This used to put them in both, reasoning that the issuer advertises only its OIDC scopes so
+ * the domain's copy was the only place a site's real scopes appeared. That was true when it was
+ * written and is not any more: #22 let the site serve metadata for its own API resources, and a
+ * store that publishes an agent API publishes that API's scopes with it.
+ *
+ * What it cost while it was true is worth recording, because the failure is silent at every
+ * step until the last. The domain document advertised `scopes_supported` for
+ * `https://{domain}`, which the authorization server has no resource registered for — the
+ * registered ones are the API's identifiers. An agent read the document, believed the claim,
+ * and asked for those scopes against the domain. The server matched no resource, so no scope
+ * was valid in that context, and the device authorization failed with every scope rejected
+ * including the OIDC ones:
+ *
+ *     invalid_request: Received invalid scope. valid=[], invalid=[profile, email, phone, ...]
+ *
+ * An empty `valid` list is the tell. It does not mean these scopes are refused; it means
+ * nothing was found to judge them against.
  *
  * ABSENT BEATS EMPTY. Both lists are OPTIONAL in RFC 9728 §2, and `"scopes_supported": []`
  * is not the same statement as leaving it out: it claims this resource accepts no scopes at
@@ -68,12 +85,14 @@ export function requestedResource(url: URL): string {
 export function protectedResourceMetadata(config: Config, url: URL): Response | null {
   const resource = requestedResource(url);
   if (resource !== config.resourceUrl && resource !== url.origin) return null;
+  // When RESOURCE_URL is the origin there is one document, not two, and it is the resource's.
+  const speaksForTheResource = resource === config.resourceUrl;
   const body = {
     resource,
     resource_name: config.siteName,
     authorization_servers: [config.issuer],
-    ...(config.scopes.length ? { scopes_supported: config.scopes } : {}),
-    ...(config.authorizationDetailsTypes.length
+    ...(speaksForTheResource && config.scopes.length ? { scopes_supported: config.scopes } : {}),
+    ...(speaksForTheResource && config.authorizationDetailsTypes.length
       ? { authorization_details_types_supported: config.authorizationDetailsTypes }
       : {}),
     bearer_methods_supported: ["header"],
