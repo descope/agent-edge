@@ -96,7 +96,7 @@ export function loadConfig(env: Env): Config {
     },
     stateSecret: required("STATE_SECRET", env.STATE_SECRET),
     stepUpSecret: env.STEP_UP_SECRET || undefined,
-    stepUpScope: env.STEP_UP_SCOPE || "openid orders:write",
+    stepUpScope: env.STEP_UP_SCOPE || "openid orders:read orders:write",
     cibaFallback: env.CIBA_FALLBACK !== "false",
     resource: env.RESOURCE || undefined,
     hintSigningSecret: env.HINT_SIGNING_SECRET || undefined,
