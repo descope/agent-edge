@@ -397,6 +397,76 @@ test("a proven Signature-Agent host outranks a configured name, whatever the tie
     /^Instinct wants to/);
 });
 
+test("a CIMD client_name appears beside its host, never instead of it", async () => {
+  // The worker read the name from a document at the host it proved, and the HMAC covers both.
+  const hint = await edgeHint({
+    status: "verified", signature_agent: "https://other.example", agent_name: "Instinct",
+    iat: now(), exp: now() + 300,
+  });
+  await call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "pat@example.com", agent_hint: hint }),
+  }));
+  assert.match(calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message")!,
+    /^Instinct \(other\.example\) wants to/);
+});
+
+test("a name an agent made up cannot stand in for the host it came from", async () => {
+  // The whole reason the host stays: client_name is written by the agent, and the customer is
+  // deciding whether to let it spend their money. Claiming to be the store itself still shows
+  // where the claim was served from, so the lie is visible rather than load-bearing.
+  const hint = await edgeHint({
+    status: "verified", signature_agent: "https://evil.example", agent_name: "Northbound Support",
+    iat: now(), exp: now() + 300,
+  });
+  await call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "pat@example.com", agent_hint: hint }),
+  }));
+  const message = calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message")!;
+  assert.match(message, /^Northbound Support \(evil\.example\) wants to/);
+});
+
+test("a name with a newline in it cannot forge a second line of the message", async () => {
+  const hint = await edgeHint({
+    status: "verified", signature_agent: "https://other.example",
+    agent_name: "Instinct\nApproved by Northbound", iat: now(), exp: now() + 300,
+  });
+  await call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "pat@example.com", agent_hint: hint }),
+  }));
+  const message = calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message")!;
+  assert.doesNotMatch(message, /\n/);
+  assert.match(message, /^Instinct Approved by Northbound \(other\.example\) wants to/);
+});
+
+test("an over-long or empty name falls back to the host alone", async () => {
+  for (const agent_name of ["x".repeat(41), "   ", ""]) {
+    const hint = await edgeHint({
+      status: "verified", signature_agent: "https://other.example", agent_name,
+      iat: now(), exp: now() + 300,
+    });
+    await call(new Request("https://front-door.test/connect", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "pat@example.com", agent_hint: hint }),
+    }));
+    assert.match(calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message")!,
+      /^An agent from other\.example wants to/, `name ${JSON.stringify(agent_name)}`);
+  }
+});
+
+test("a hint from a worker that sends no agent_name still works", async () => {
+  // Deploy order isn't guaranteed: an older worker signs a hint without the field.
+  const hint = await edgeHint({ status: "verified", signature_agent: "https://other.example", iat: now(), exp: now() + 300 });
+  await call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "pat@example.com", agent_hint: hint }),
+  }));
+  assert.match(calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message")!,
+    /^An agent from other\.example wants to/);
+});
+
 test("VERIFIED_AGENT_NAME names a verified agent that showed no host", async () => {
   // A hint can say "verified" without carrying a Signature-Agent. Nothing was proven about
   // which agent this is, so the configured name is all there is to say.

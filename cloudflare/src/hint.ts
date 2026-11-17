@@ -14,6 +14,7 @@ export async function signAgentHint(
   const payload = {
     status: agent.status,
     signature_agent: agent.signatureAgent ?? null,
+    agent_name: agent.agentName ?? null,
     iat,
     exp: iat + 300,
   };

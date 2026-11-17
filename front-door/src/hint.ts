@@ -3,6 +3,12 @@ import { fromBase64Url, utf8 } from "./encoding";
 export interface AgentHint {
   status: "verified" | "unverified" | "none";
   signature_agent: string | null;
+  /**
+   * `client_name` from the agent's Client ID Metadata Document, as the worker read it.
+   * Optional: a worker deployed before this field existed signs a hint without it, and the
+   * front door then simply has no name. Agent-written text — see `agentLabel`.
+   */
+  agent_name?: string | null;
   iat: number;
   exp: number;
 }
