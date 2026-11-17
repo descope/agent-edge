@@ -13,6 +13,10 @@ const LOGIN_HTML = "<!doctype html><html><head><title>Sign in</title></head><bod
 // Only the site serves this. A /poppy/ path that comes back with it reached the origin;
 // the worker has no way to produce it, and the origin's 404 is not it either.
 const ORIGIN_POPPY = '{"served_by":"the site"}';
+// The metadata for an API the SITE owns, at the path RFC 9728 derives from that API's own
+// URL. Only the site can produce this document, so getting it back proves the worker let
+// the request through rather than answering for a resource it does not speak for.
+const ORIGIN_API_METADATA = '{"resource":"the site\'s own API","served_by":"the site"}';
 
 let origin: Server;
 let worker: ChildProcess;
@@ -31,6 +35,9 @@ before(async () => {
     } else if (req.url === "/api/public") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end("[]");
+    } else if (req.url === "/.well-known/oauth-protected-resource/api/agent/v1") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(ORIGIN_API_METADATA);
     } else if (req.url?.startsWith("/poppy/")) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(ORIGIN_POPPY);
@@ -133,7 +140,16 @@ test("the bare metadata path names the host that served it", async () => {
   assert.deepEqual(body.authorization_servers, ["https://api.descope.com/P123"]);
 });
 
-test("a metadata path for some other resource is a 404, not a wrong document", async () => {
+// A site that publishes its own agent API publishes that API's metadata too, at a path
+// under this same prefix. The worker speaks for two resources and must get out of the way
+// for the rest, or the site has nowhere to serve them from.
+test("a metadata path the site owns reaches the site", async () => {
+  const res = await fetch(`${BASE}/.well-known/oauth-protected-resource/api/agent/v1`);
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), ORIGIN_API_METADATA);
+});
+
+test("a metadata path nobody serves is the site's own 404, not a wrong document", async () => {
   const res = await fetch(`${BASE}/.well-known/oauth-protected-resource/nonsense`);
   assert.equal(res.status, 404);
 });

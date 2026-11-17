@@ -45,8 +45,14 @@ export function requestedResource(url: URL): string {
  *   - RESOURCE_URL, at the path `metadataUrl` computes. This is what the `WWW-Authenticate`
  *     challenge on a 401 points at, and it is unchanged.
  *
- * Anything else under the prefix is a resource this worker does not speak for, and says so
- * with a 404 rather than answering as something it is not.
+ * Anything else under the prefix is a resource this worker does not speak for, and returns
+ * null rather than answering as something it is not. The caller forwards those to the
+ * origin, because the site is the only thing that can answer for them: a store that
+ * publishes an agent API with its own resource identifier publishes that API's metadata
+ * too, at a path derived from it. The worker used to answer those with a 404 itself, which
+ * left the site behind it no way to serve its own — and an agent that cannot read an API's
+ * metadata falls back to the Company's default token, which is the wrong one the moment
+ * that API sits behind a different issuer or expects a different audience.
  *
  * BOTH CARRY THE SCOPES. `authorization_servers` is the same in either document — that identity
  * is what links the domain to the issuer — and so are the scope lists. Poppy 0.4 (3.2, 4.7) has
@@ -59,14 +65,9 @@ export function requestedResource(url: URL): string {
  * all. A site that hasn't listed its scopes yet has not made that claim, so neither does
  * this document.
  */
-export function protectedResourceMetadata(config: Config, url: URL): Response {
+export function protectedResourceMetadata(config: Config, url: URL): Response | null {
   const resource = requestedResource(url);
-  if (resource !== config.resourceUrl && resource !== url.origin) {
-    return new Response("Not Found", {
-      status: 404,
-      headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
-    });
-  }
+  if (resource !== config.resourceUrl && resource !== url.origin) return null;
   const body = {
     resource,
     resource_name: config.siteName,

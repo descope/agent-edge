@@ -66,15 +66,29 @@ RESOURCE_URL = "https://example.com/api"
 # POPPY_SCOPES = """{"orders:read": "See your orders", "orders:write": "Place an order with your saved address and card"}"""
 # POPPY_SCOPE_HINTS = """{"orders:read": {"changes": "none", "personal_data": true}, "orders:write": {"changes": "irreversible", "personal_data": true}}"""
 
-# APIs to advertise to agents, as JSON. A url may be a path on your own site, and is resolved
-# against the host the document was asked for. Agents fetch these to learn what you offer.
 # Older protocol drafts to serve beside the current one. Pre-1.0 an agent refuses a
 # document whose major.minor it does not implement, so a draft bump cuts off every agent
 # that has not caught up. Each version listed here gets its own document at
 # /poppy/<version>.json and is named in supported_versions.
 # SUPPORTED_VERSIONS = "0.3"
 
-# POPPY_APIS = """[{"url": "/openapi.json", "description": "Browse the catalog and place orders"}]"""
+# APIs to advertise to agents, as JSON. A url may be a path on your own site, and is resolved
+# against the host the document was asked for, so a site reachable on two hosts advertises
+# each visitor's own origin. Each entry may also carry a type (default "openapi") and a
+# description. Agents fetch these to learn what you offer.
+#
+# WITHOUT THIS, A SESSION HAS NOWHERE TO BE SPENT. The document names your issuer and the
+# scopes you accept, and then lists no URL an agent is allowed to call — so an agent sent to
+# do something for a customer signs them in and refuses the first request it makes, because
+# nothing on your site is something you have vouched for. A website-only site is a real
+# thing to be, but if you have an API, say so here.
+#
+# Publish that API's own protected resource metadata from your site as well. RFC 9728 puts
+# the well-known segment between origin and path, so an API at
+# https://example.com/api/agent/v1 publishes at
+# /.well-known/oauth-protected-resource/api/agent/v1. This worker speaks for two resources
+# (see README) and forwards everything deeper under that prefix to you.
+# POPPY_APIS = """[{"url": "/api/agent/v1/openapi.json", "description": "Browse the catalog and place orders"}]"""
 
 # Paths where a human would sign in. Agents that hit these get the login hint, and in route mode
 # get sent to the front door once FRONT_DOOR_URL is set.
