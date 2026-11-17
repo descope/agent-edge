@@ -118,7 +118,7 @@ async function connect(request: Request, env: Env, config: Config): Promise<Resp
       clientId,
       email,
       scope,
-      bindingMessage: `${agentLabel(agent)} wants to ${config.access[agent.tier].replaceAll("{site}", config.siteName)}. Code ${code}`,
+      bindingMessage: `${agentLabel(agent, config)} wants to ${config.access[agent.tier].replaceAll("{site}", config.siteName)}. Code ${code}`,
     });
     started = { requestId: ciba.authReqId, code, expiresIn: ciba.expiresIn, interval: ciba.interval };
   }
@@ -314,7 +314,7 @@ async function stepUp(request: Request, url: URL, config: Config): Promise<Respo
       clientId,
       email: action.email,
       scope: config.stepUpScope,
-      bindingMessage: `${agentLabel(agent)} wants to place a ${action.amount} order at ${config.siteName}. Code ${code}`,
+      bindingMessage: `${agentLabel(agent, config)} wants to place a ${action.amount} order at ${config.siteName}. Code ${code}`,
     });
   } catch (error) {
     console.error(JSON.stringify({ event: "step_up_failed", client_id: clientId, error: String(error) }));
@@ -384,10 +384,22 @@ async function identify(request: Request, agentHint: string | undefined, config:
   return { tier: "unverified", source };
 }
 
-function agentLabel(agent: Agent): string {
-  if (agent.tier === "trusted") return `An agent from ${new URL(agent.signatureAgent!).host}`;
-  if (agent.tier === "verified") return "A verified agent";
-  return "An unverified agent";
+function agentLabel(agent: Agent, config: Config): string {
+  // Evidence beats description — and the TIER is not what tells the two apart. A verified
+  // agent proves a Signature-Agent host exactly as a trusted one does; the only difference
+  // between them is whether that host is listed in `clients.trusted`. An edge hint carries
+  // the host the worker proved, under an HMAC this front door checks before believing it.
+  //
+  // So the rule turns on whether a host was proven, not on the tier. Keying it to the tier
+  // would let VERIFIED_AGENT_NAME tell a customer approving an irreversible purchase that
+  // some other product is asking, which is the one claim this message must never make.
+  // The configured names are for the agent that proved nothing.
+  if (agent.signatureAgent) return `An agent from ${new URL(agent.signatureAgent).host}`;
+  // `identify` returns `trusted` only when a host was proven, so that tier is already gone by
+  // here. Falling to the verified name rather than asserting that keeps this total, and would
+  // still be true of a trusted agent if the two ever came apart.
+  if (agent.tier === "unverified") return config.names.unverified;
+  return config.names.verified;
 }
 
 function safeReturnTo(value: string | null | undefined): string | undefined {

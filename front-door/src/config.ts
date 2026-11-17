@@ -23,6 +23,28 @@ export interface Env {
   STEP_UP_SCOPE?: string;
   VERIFIED_ACCESS?: string;
   UNVERIFIED_ACCESS?: string;
+  /**
+   * What the approval message calls an agent of this tier, before "wants to ...".
+   * Defaults are "A verified agent" and "An unverified agent".
+   *
+   * Set one to a product's name where a tier means exactly one agent — a front door
+   * standing in front of a single product, so every unverified request is that product —
+   * and the customer reads "Instinct wants to place a $705.25 order at Northbound"
+   * instead of a category they have to decode. Leave it unset anywhere a tier can hold
+   * more than one agent: naming one of them would be a claim the front door cannot back.
+   *
+   * NEITHER NAME CAN REPLACE A PROVEN ONE. Whenever a request carries a Signature-Agent
+   * host the front door verified — every trusted agent, and every verified agent that
+   * signed rather than arriving on a hint alone — the message names that host and these
+   * settings are not consulted. A name is evidence or it is description, and the approval
+   * message is where substituting one for the other does the most damage: the customer is
+   * deciding whether to let this agent spend their money.
+   *
+   * So VERIFIED_AGENT_NAME reaches only a verified agent with no host to show. In a
+   * deployment where everything verified signs, it will never be read at all.
+   */
+  VERIFIED_AGENT_NAME?: string;
+  UNVERIFIED_AGENT_NAME?: string;
   STATE_SECRET: string;
   HINT_SIGNING_SECRET?: string;
   PRIVATE_KEY_JWK?: string;
@@ -43,6 +65,8 @@ export interface Config {
   scopes: Record<Tier, string>;
   /** What each tier is asking to do, in words the user reads on the consent screen. */
   access: Record<Tier, string>;
+  /** What the approval message calls an agent of each tier. Trusted agents name themselves. */
+  names: { verified: string; unverified: string };
   /** Shared with the store, which signs the order description it sends agents to step-up with. */
   stepUpSecret?: string;
   /** The scope a step-up asks for. */
@@ -93,6 +117,10 @@ export function loadConfig(env: Env): Config {
       trusted: env.TRUSTED_ACCESS || "connect to {site}",
       verified: env.VERIFIED_ACCESS || "connect to {site}",
       unverified: env.UNVERIFIED_ACCESS || "connect to {site}",
+    },
+    names: {
+      verified: env.VERIFIED_AGENT_NAME || "A verified agent",
+      unverified: env.UNVERIFIED_AGENT_NAME || "An unverified agent",
     },
     stateSecret: required("STATE_SECRET", env.STATE_SECRET),
     stepUpSecret: env.STEP_UP_SECRET || undefined,
