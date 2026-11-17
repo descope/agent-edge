@@ -89,9 +89,15 @@ resources. RFC 9728 §3.3 makes each document declare the resource the request w
 | `/.well-known/oauth-protected-resource` | the host that served it — what a Personal Agent derives from your Poppy `organization.domain` and checks |
 | the path `RESOURCE_URL` maps to, such as `/.well-known/oauth-protected-resource/api` | `RESOURCE_URL`, which is what the 401 challenge points at |
 
-Both name the same `authorization_servers` and the same scopes: that is the link from your domain to
-your issuer, and on a hosted issuer the site's own metadata is the only place your scopes are
-published at all. Any other path under the prefix is a resource this worker does not speak for, so it
+Both name the same `authorization_servers`: that is the link from your domain to your issuer, and it
+is why the first document exists. Only the `RESOURCE_URL` document carries `scopes_supported` and
+`authorization_details_types_supported`, because those say what a token **for that resource** may
+carry. Your domain is not a resource tokens are issued against unless you have made it one — if you
+set `RESOURCE_URL` to your origin there is one document, not two, and it carries them.
+
+Claiming scopes on the domain document tells an agent to ask your authorization server for them
+against an identifier it has nothing registered for, and every scope comes back invalid, the OIDC
+ones included. Any other path under the prefix is a resource this worker does not speak for, so it
 goes to your site unchanged rather than being answered with a document naming something else. That is
 what lets you publish an agent API with its own resource identifier — say `https://example.com/api/agent/v1`,
 whose metadata belongs at `/.well-known/oauth-protected-resource/api/agent/v1` — and serve that

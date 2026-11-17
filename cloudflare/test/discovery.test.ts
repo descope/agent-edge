@@ -75,7 +75,12 @@ test("the bare well-known path names the host that served it", async () => {
 });
 
 test("the site's document links the domain to the issuer, and claims no scopes of its own", async () => {
-  const overrides = { SCOPES_SUPPORTED: "orders:read,orders:write" };
+  // Both settings, so each assertion below can actually fail: with only SCOPES_SUPPORTED set,
+  // `authorization_details_types_supported` is absent either way and the guard on it goes untested.
+  const overrides = {
+    SCOPES_SUPPORTED: "orders:read,orders:write",
+    AUTHORIZATION_DETAILS_TYPES: "purchase",
+  };
   const site = await siteMetadata("https://example.com", overrides);
   const api = await metadata(overrides);
   // The link to the issuer is what both documents share. It is why the domain one exists.
@@ -90,6 +95,7 @@ test("the site's document links the domain to the issuer, and claims no scopes o
   assert.equal(site.scopes_supported, undefined);
   assert.equal(site.authorization_details_types_supported, undefined);
   assert.deepEqual(api.scopes_supported, ["orders:read", "orders:write"]);
+  assert.deepEqual(api.authorization_details_types_supported, ["purchase"]);
 });
 
 // A Company whose domain IS the resource has one document, not two, and it carries everything.
