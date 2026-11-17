@@ -4,7 +4,7 @@ import { base64Url, randomCode, utf8 } from "./encoding";
 import { verifyHint, verifySigned } from "./hint";
 import { connectPage, waitingPage, type ConnectOptions } from "./pages";
 import { seal, unseal, type PendingRequest, type RefreshState } from "./state";
-import { verifiedSignatureAgent } from "./webBotAuth";
+import { cleanName, verifiedSignatureAgent } from "./webBotAuth";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BIND_COOKIE = "fd_bind";
@@ -361,12 +361,16 @@ async function wait(request: Request, url: URL, config: Config): Promise<Respons
 interface Agent {
   tier: Tier;
   signatureAgent?: string;
+  /** `client_name` from the agent's Client ID Metadata Document, when it published one. */
+  agentName?: string;
   source: "web_bot_auth" | "edge_hint" | "none";
 }
 
 /** Verifies the agent directly, falls back to the edge integration's signed hint, then to unverified. */
 async function identify(request: Request, agentHint: string | undefined, config: Config): Promise<Agent> {
-  let signatureAgent = await verifiedSignatureAgent(request);
+  const direct = await verifiedSignatureAgent(request);
+  let signatureAgent = direct?.uri;
+  let agentName = direct?.clientName;
   let verified = Boolean(signatureAgent);
   let source: Agent["source"] = verified ? "web_bot_auth" : "none";
 
@@ -375,12 +379,18 @@ async function identify(request: Request, agentHint: string | undefined, config:
     if (hint?.status === "verified") {
       verified = true;
       signatureAgent = hint.signature_agent ?? undefined;
+      // The worker read this from the same document, for the same host, and the HMAC above
+      // covers it. An older worker sends no such field, so this is simply absent then.
+      agentName = cleanName(hint.agent_name);
       source = "edge_hint";
     }
   }
 
-  if (signatureAgent && config.clients.trusted[signatureAgent]) return { tier: "trusted", signatureAgent, source };
-  if (verified) return { tier: "verified", signatureAgent, source };
+  // A name without the host it came from is worth nothing here, and a name is only ever read
+  // from a document at a host that was proven — so the two travel together or not at all.
+  const named = signatureAgent === undefined ? {} : { signatureAgent, ...(agentName === undefined ? {} : { agentName }) };
+  if (signatureAgent && config.clients.trusted[signatureAgent]) return { tier: "trusted", ...named, source };
+  if (verified) return { tier: "verified", ...named, source };
   return { tier: "unverified", source };
 }
 
@@ -394,7 +404,15 @@ function agentLabel(agent: Agent, config: Config): string {
   // would let VERIFIED_AGENT_NAME tell a customer approving an irreversible purchase that
   // some other product is asking, which is the one claim this message must never make.
   // The configured names are for the agent that proved nothing.
-  if (agent.signatureAgent) return `An agent from ${new URL(agent.signatureAgent).host}`;
+  if (agent.signatureAgent) {
+    const host = new URL(agent.signatureAgent).host;
+    // THE NAME NEVER APPEARS ALONE. `client_name` is written by the agent, and a customer is
+    // about to decide whether to let it spend their money — a name on its own would let any
+    // agent that can serve a document call itself anything. Printed beside the host it was
+    // fetched from, it can only ever say "this is what the thing at this host calls itself",
+    // and the host is the part that was actually proven.
+    return agent.agentName ? `${agent.agentName} (${host})` : `An agent from ${host}`;
+  }
   // `identify` returns `trusted` only when a host was proven, so that tier is already gone by
   // here. Falling to the verified name rather than asserting that keeps this total, and would
   // still be true of a trusted agent if the two ever came apart.

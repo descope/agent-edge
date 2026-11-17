@@ -16,8 +16,31 @@ export interface AgentResult {
   signatureAgent?: string;
   /** The Signature-Agent header a rejected request carried. Client-supplied, for logs only. */
   claimedSignatureAgent?: string;
+  /**
+   * `client_name` from the agent's Client ID Metadata Document. Only set when the signature
+   * verified, and only when the agent pointed at a CIMD rather than a key directory. Written
+   * by the agent, so it travels to the front door beside `signatureAgent` and is never shown
+   * without it.
+   */
+  agentName?: string;
   keyid?: string;
   reason: string;
+}
+
+/** How long a name may be before it stops being a name. Binding messages are short. */
+const MAX_NAME_LENGTH = 40;
+
+/**
+ * Bounds a name the agent wrote before it travels to the front door and into a message a
+ * customer reads while deciding whether to let this agent spend their money: control
+ * characters out (a newline could forge a second line), whitespace collapsed, length capped,
+ * and nothing returned for a name that is empty once cleaned.
+ */
+export function cleanName(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const cleaned = value.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim();
+  if (cleaned === "" || cleaned.length > MAX_NAME_LENGTH) return undefined;
+  return cleaned;
 }
 
 /** Fetches and parses JSON. Injected so the worker can cache and tests can mock. */
@@ -35,12 +58,20 @@ export async function detectAgent(
   // 1. Web Bot Auth: a valid signature proves which agent platform sent the request.
   if (signed) {
     try {
+      // The resolver fetches the agent's document to get a key; its name is in the same
+      // document. There is no way back out through a resolver that answers with a key, so it
+      // is captured here and only read once the signature has verified.
+      let agentName: string | undefined;
       const result = await verify(request, {
-        resolver: (candidate) => resolveVerifier(candidate, fetchJson),
+        resolver: (candidate) =>
+          resolveVerifier(candidate, fetchJson, (name) => {
+            agentName = name;
+          }),
       });
       return {
         status: "verified",
         signatureAgent: result.signatureAgent?.uri,
+        ...(agentName === undefined ? {} : { agentName }),
         keyid: result.keyid,
         reason: "web bot auth signature verified",
       };
@@ -74,12 +105,13 @@ export async function detectAgent(
 async function resolveVerifier(
   candidate: UntrustedWebBotSignatureCandidate,
   fetchJson: JsonFetcher,
+  foundName?: (name: string) => void,
 ): Promise<WebBotVerifier> {
   const agent = candidate.signatureAgent;
   if (!agent) throw new Error("missing Signature-Agent header");
   if (!agent.uri.startsWith("https://")) throw new Error("Signature-Agent must use https");
 
-  const keys = await loadKeys(agent.type, agent.uri, fetchJson);
+  const keys = await loadKeys(agent.type, agent.uri, fetchJson, foundName);
   for (const jwk of keys) {
     try {
       const verifier = await verifierFromJWK(jwk);
@@ -97,6 +129,7 @@ async function loadKeys(
   type: "directory" | "jwks_uri" | "cimd",
   uri: string,
   fetchJson: JsonFetcher,
+  foundName?: (name: string) => void,
 ): Promise<JsonWebKey[]> {
   if (type === "directory") {
     return keysFrom(await fetchJson(new URL(HTTP_MESSAGE_SIGNATURES_DIRECTORY, uri).toString()));
@@ -104,8 +137,11 @@ async function loadKeys(
   if (type === "jwks_uri") {
     return keysFrom(await fetchJson(uri));
   }
-  // Client ID Metadata Document: keys are inline or behind jwks_uri.
+  // Client ID Metadata Document: keys are inline or behind jwks_uri, and the name the agent
+  // publishes for itself is in the same document, so reading it costs no extra request.
   const card = parseSignatureAgentCard(await fetchJson(uri), uri);
+  const name = cleanName(card.client_name);
+  if (name !== undefined) foundName?.(name);
   if (card.jwks) return card.jwks.keys;
   if (card.jwks_uri) return keysFrom(await fetchJson(card.jwks_uri));
   throw new Error("client metadata has no keys");
