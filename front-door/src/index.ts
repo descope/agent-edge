@@ -385,11 +385,21 @@ async function identify(request: Request, agentHint: string | undefined, config:
 }
 
 function agentLabel(agent: Agent, config: Config): string {
-  // Not overridable: a trusted agent is named by the Signature-Agent host it proved, and
-  // that name is evidence. The other two are description, and a deployment where a tier
-  // holds exactly one product can say which product it is.
-  if (agent.tier === "trusted") return `An agent from ${new URL(agent.signatureAgent!).host}`;
-  return config.names[agent.tier];
+  // Evidence beats description — and the TIER is not what tells the two apart. A verified
+  // agent proves a Signature-Agent host exactly as a trusted one does; the only difference
+  // between them is whether that host is listed in `clients.trusted`. An edge hint carries
+  // the host the worker proved, under an HMAC this front door checks before believing it.
+  //
+  // So the rule turns on whether a host was proven, not on the tier. Keying it to the tier
+  // would let VERIFIED_AGENT_NAME tell a customer approving an irreversible purchase that
+  // some other product is asking, which is the one claim this message must never make.
+  // The configured names are for the agent that proved nothing.
+  if (agent.signatureAgent) return `An agent from ${new URL(agent.signatureAgent).host}`;
+  // `identify` returns `trusted` only when a host was proven, so that tier is already gone by
+  // here. Falling to the verified name rather than asserting that keeps this total, and would
+  // still be true of a trusted agent if the two ever came apart.
+  if (agent.tier === "unverified") return config.names.unverified;
+  return config.names.verified;
 }
 
 function safeReturnTo(value: string | null | undefined): string | undefined {

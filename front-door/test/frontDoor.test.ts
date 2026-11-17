@@ -364,6 +364,51 @@ test("each tier's access description goes in the approval message, with {site} f
     /^An unverified agent wants to view your orders at Northbound\. Code [A-Z2-9]{6}$/);
 });
 
+test("a proven Signature-Agent host outranks a configured name, whatever the tier", async () => {
+  // Both names set, as a deployment standing in front of one product would set them.
+  const overrides = { VERIFIED_AGENT_NAME: "Instinct", UNVERIFIED_AGENT_NAME: "Instinct" };
+
+  // Verified rather than trusted: the host is proven, it just isn't in TRUSTED_PLATFORMS.
+  // This is the case the name must not reach — naming this agent "Instinct" would tell a
+  // customer approving a purchase that a product other than the one asking is asking.
+  const hint = await edgeHint({ status: "verified", signature_agent: "https://other.example", iat: now(), exp: now() + 300 });
+  await call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "pat@example.com", agent_hint: hint }),
+  }), overrides);
+  assert.match(calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message")!,
+    /^An agent from other\.example wants to/);
+
+  // A trusted host is unaffected, as before.
+  const trusted = await edgeHint({ status: "verified", signature_agent: "https://agent.example", iat: now(), exp: now() + 300 });
+  await call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "pat@example.com", agent_hint: trusted }),
+  }), overrides);
+  assert.match(calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message")!,
+    /^An agent from agent\.example wants to/);
+
+  // And the name still reaches the agent that proved nothing, which is what it is for.
+  await call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "pat@example.com" }),
+  }), overrides);
+  assert.match(calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message")!,
+    /^Instinct wants to/);
+});
+
+test("VERIFIED_AGENT_NAME names a verified agent that showed no host", async () => {
+  // A hint can say "verified" without carrying a Signature-Agent. Nothing was proven about
+  // which agent this is, so the configured name is all there is to say.
+  const hint = await edgeHint({ status: "verified", iat: now(), exp: now() + 300 });
+  await call(new Request("https://front-door.test/connect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "pat@example.com", agent_hint: hint }),
+  }), { VERIFIED_AGENT_NAME: "Instinct" });
+  assert.match(calls.filter((c) => c.url === BC).at(-1)!.params.get("binding_message")!,
+    /^Instinct wants to/);
+});
+
 /** A stand-in for a Workers rate limiting binding that records keys and refuses the ones in `blocked`. */
 function limiter(blocked: string[] = []) {
   const keys: string[] = [];

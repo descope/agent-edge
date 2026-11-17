@@ -33,9 +33,15 @@ export interface Env {
    * instead of a category they have to decode. Leave it unset anywhere a tier can hold
    * more than one agent: naming one of them would be a claim the front door cannot back.
    *
-   * There is deliberately no override for the trusted tier. A trusted agent is named by
-   * the Signature-Agent host it actually proved, and that name is evidence rather than
-   * description, so no setting may replace it.
+   * NEITHER NAME CAN REPLACE A PROVEN ONE. Whenever a request carries a Signature-Agent
+   * host the front door verified — every trusted agent, and every verified agent that
+   * signed rather than arriving on a hint alone — the message names that host and these
+   * settings are not consulted. A name is evidence or it is description, and the approval
+   * message is where substituting one for the other does the most damage: the customer is
+   * deciding whether to let this agent spend their money.
+   *
+   * So VERIFIED_AGENT_NAME reaches only a verified agent with no host to show. In a
+   * deployment where everything verified signs, it will never be read at all.
    */
   VERIFIED_AGENT_NAME?: string;
   UNVERIFIED_AGENT_NAME?: string;
