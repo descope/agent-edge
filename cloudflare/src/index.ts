@@ -38,7 +38,13 @@ export default {
 
     // Discovery files and the agent page, served without touching the origin.
     if (request.method === "GET" || request.method === "HEAD") {
-      if (isResourceMetadataPath(url.pathname)) return protectedResourceMetadata(config, url);
+      // Only the two resources this worker speaks for. Anything deeper belongs to a
+      // resource the SITE publishes — an agent API with its own identifier, say — so it
+      // falls through to the origin, which is the only thing that can answer for it.
+      if (isResourceMetadataPath(url.pathname)) {
+        const metadata = protectedResourceMetadata(config, url);
+        if (metadata) return metadata;
+      }
       if (url.pathname === POPPY_PATH) {
         return poppyCanonicalRedirect(config, url) ?? poppyDocument(config, url);
       }

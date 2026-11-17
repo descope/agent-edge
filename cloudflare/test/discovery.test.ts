@@ -89,12 +89,16 @@ test("the API's own path still names RESOURCE_URL", async () => {
   assert.equal((await metadata()).resource, "https://example.com/api");
 });
 
-test("a path for a resource this worker doesn't serve is a 404", async () => {
-  const notOurs = async (url: string) =>
-    protectedResourceMetadata(config, new URL(url)).status;
-  assert.equal(await notOurs("https://example.com/.well-known/oauth-protected-resource/nonsense"), 404);
+// Null, not a document and not a 404: the site behind this worker may publish metadata
+// for a resource of its own — an agent API with its own identifier — at a path derived
+// from that resource. Answering here would overwrite it; 404ing here would hide it. The
+// worker says "not mine" and the request goes to the origin.
+test("a path for a resource this worker doesn't serve is left to the site", () => {
+  const notOurs = (url: string) => protectedResourceMetadata(config, new URL(url));
+  assert.equal(notOurs("https://example.com/.well-known/oauth-protected-resource/api/agent/v1"), null);
+  assert.equal(notOurs("https://example.com/.well-known/oauth-protected-resource/nonsense"), null);
   // The API lives on example.com; the same path on another host asks about another resource.
-  assert.equal(await notOurs("https://other.example/.well-known/oauth-protected-resource/api"), 404);
+  assert.equal(notOurs("https://other.example/.well-known/oauth-protected-resource/api"), null);
 });
 
 test("a trailing slash asks about the same resource", () => {

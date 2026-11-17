@@ -91,8 +91,11 @@ resources. RFC 9728 §3.3 makes each document declare the resource the request w
 
 Both name the same `authorization_servers` and the same scopes: that is the link from your domain to
 your issuer, and on a hosted issuer the site's own metadata is the only place your scopes are
-published at all. Any other path under the prefix is a resource this worker does not speak for, and
-answers `404` rather than with a document naming something else.
+published at all. Any other path under the prefix is a resource this worker does not speak for, so it
+goes to your site unchanged rather than being answered with a document naming something else. That is
+what lets you publish an agent API with its own resource identifier — say `https://example.com/api/agent/v1`,
+whose metadata belongs at `/.well-known/oauth-protected-resource/api/agent/v1` — and serve that
+document yourself, which only your site can do.
 
 Then have your site accept the tokens. See [Accepting the tokens in your backend](../README.md#accepting-the-tokens-in-your-backend).
 
