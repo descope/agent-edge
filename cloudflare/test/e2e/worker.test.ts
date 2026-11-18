@@ -63,6 +63,8 @@ before(async () => {
       // is only served where the resource it names actually is.
       "--var", `RESOURCE_URL:${BASE}/api`,
       "--var", 'POPPY_APIS:[{"url": "/openapi.json", "description": "Buy things"}]',
+      // A path, so the document follows the site onto whichever host the agent opened.
+      "--var", "POPPY_BROWSER_SESSION_ENDPOINT:/poppy/browser-session",
       // SUPPORTED_VERSIONS is deliberately not set: these tests run the configuration a
       // deployed worker actually has, where the 0.4 alternate comes from the default.
     ],
@@ -164,6 +166,7 @@ test("the Poppy discovery document is served at the edge", async () => {
     auth: { issuer: string };
     apis: { type: string; url: string }[];
     supported_versions: Record<string, string>;
+    web: Record<string, string>;
   };
   assert.equal(body.protocol_version, "1.0");
   assert.equal(body.auth.issuer, "https://api.descope.com/P123");
@@ -173,12 +176,24 @@ test("the Poppy discovery document is served at the edge", async () => {
   ]);
   // Section 3.4's cross-link, on the host that served this document.
   assert.deepEqual(body.supported_versions, { "0.4": `${BASE}/poppy/0.4.json` });
+  // Section 6, resolved against the host the document was asked for.
+  assert.deepEqual(body.web, { browser_session_endpoint: `${BASE}/poppy/browser-session` });
 });
 
 test("other .well-known paths still reach the origin", async () => {
   // The worker claims two paths under /.well-known, not the whole prefix, so a site can
   // serve its own files there.
   assert.equal((await fetch(`${BASE}/.well-known/change-password`)).status, 404);
+});
+
+// Section 6. The worker advertises the join endpoint; the store serves it. The path sits
+// under /poppy/, which is also where the versioned documents live, so this is the test that
+// the worker hands it over instead of swallowing it — an agent that joined at a URL the
+// worker answered itself would never reach the store that holds the account.
+test("the advertised browser session endpoint reaches the site, not the worker", async () => {
+  const res = await fetch(`${BASE}/poppy/browser-session`);
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), ORIGIN_POPPY);
 });
 
 // The promise the version bump rests on: an agent that only speaks 0.4 follows the link out

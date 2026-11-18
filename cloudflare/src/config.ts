@@ -17,6 +17,12 @@ export interface Env {
    * [{"url": "/openapi.json", "description": "Browse and buy"}]
    */
   POPPY_APIS?: string;
+  /**
+   * Where a Personal Agent's browser joins a Session (section 6). An absolute HTTPS URL, on
+   * any host, or a path on this site. Unset, the document says nothing and agents browse
+   * signed out — which is the right default until the endpoint actually answers.
+   */
+  POPPY_BROWSER_SESSION_ENDPOINT?: string;
   SUPPORTED_VERSIONS?: string;
   AUTHORIZATION_DETAILS_TYPES?: string;
   LOGIN_PATHS?: string;
@@ -74,6 +80,8 @@ export interface Config {
   scopeDescriptions?: Record<string, string>;
   scopeHints?: Record<string, ScopeHint>;
   apis: PoppyApi[];
+  /** Where a browser joins a Session (section 6), resolved when the document is rendered. */
+  browserSessionEndpoint?: string;
   /** Older protocol versions served alongside the one poppy.json names (3.4). */
   supportedVersions: string[];
   authorizationDetailsTypes: string[];
@@ -128,6 +136,39 @@ function poppyApis(value: string | undefined): PoppyApi[] {
       ...(typeof description === "string" && description ? { description } : {}),
     }];
   });
+}
+
+/**
+ * Where a Personal Agent's browser joins a Session (section 6).
+ *
+ * LISTING IT IS A PROMISE. An agent that sees `browser_session_endpoint` MUST join before it
+ * browses the site, so naming a URL that doesn't answer breaks browsing that worked before.
+ * Unset is therefore the default, and stays the default until the endpoint is live.
+ *
+ * Any host is allowed (section 6) — unlike the versioned document URLs, which must be on the
+ * host that served poppy.json — so this is not checked against the site's domain. It must be
+ * HTTPS like every URL this protocol defines (section 3); http passes only because the rest
+ * of this worker's configuration accepts it for local testing. A relative value is a path on
+ * the site, resolved against the host the document was asked for, as POPPY_APIS entries are.
+ *
+ * Same bargain as POPPY_APIS: a value that doesn't parse costs the document this one field.
+ */
+function browserSessionEndpoint(value: string | undefined): string | undefined {
+  const endpoint = value?.trim();
+  if (!endpoint) return undefined;
+  const giveUp = (reason: string): undefined => {
+    console.error(JSON.stringify({
+      event: "config_error",
+      error: `POPPY_BROWSER_SESSION_ENDPOINT ${reason}`,
+    }));
+    return undefined;
+  };
+  // Resolved against a base so a path is accepted, and so rendering can't throw later.
+  const base = "https://site.invalid";
+  if (!URL.canParse(endpoint, base)) return giveUp("is not a URL or a path");
+  const { protocol } = new URL(endpoint, base);
+  if (protocol !== "https:" && protocol !== "http:") return giveUp("must be an http(s) URL");
+  return endpoint;
 }
 
 /**
@@ -255,6 +296,7 @@ export function loadConfig(env: Env): Config {
     scopeDescriptions: poppyScopes(env.POPPY_SCOPES),
     scopeHints: poppyScopeHints(env.POPPY_SCOPE_HINTS),
     apis: poppyApis(env.POPPY_APIS),
+    browserSessionEndpoint: browserSessionEndpoint(env.POPPY_BROWSER_SESSION_ENDPOINT),
     supportedVersions: supportedVersions(env.SUPPORTED_VERSIONS, POPPY_VERSION),
     authorizationDetailsTypes: list(env.AUTHORIZATION_DETAILS_TYPES),
     loginPaths: list(env.LOGIN_PATHS),

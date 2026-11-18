@@ -201,6 +201,57 @@ test("the Poppy domain keeps a port that isn't 443 (3.1)", async () => {
   );
 });
 
+// Section 6. Listing the endpoint is a promise: an agent that sees it MUST join its browser
+// to a Session before browsing, so a site that lists one it doesn't serve breaks browsing
+// that worked before. Unset therefore means unset — `web` stays the empty object that says
+// "browse me signed out".
+test("web carries no browser_session_endpoint unless one is configured", async () => {
+  assert.deepEqual((await poppy()).web, {});
+});
+
+test("a configured browser session endpoint is published in web", async () => {
+  const body = await poppy({ POPPY_BROWSER_SESSION_ENDPOINT: "/poppy/browser-session" });
+  assert.deepEqual(body.web, {
+    browser_session_endpoint: "https://example.com/poppy/browser-session",
+  });
+});
+
+// 6: "the endpoint can be on any host the Company chooses, such as accounts.example.com for
+// example.com". Unlike supported_versions' URLs, this one is not pinned to the serving host.
+test("the browser session endpoint may be on another host", async () => {
+  const body = await poppy({
+    POPPY_BROWSER_SESSION_ENDPOINT: "https://accounts.example.com/poppy/browser-session",
+  });
+  assert.equal(
+    (body.web as Record<string, string>).browser_session_endpoint,
+    "https://accounts.example.com/poppy/browser-session",
+  );
+});
+
+// Every URL this protocol defines MUST be HTTPS (section 3). A site that spells it wrong
+// loses the endpoint, not the document: agents browse signed out, which is what they did
+// before, rather than being sent to a URL they MUST refuse.
+test("a browser session endpoint that isn't http(s) is dropped, document intact", async () => {
+  const body = await poppy({ POPPY_BROWSER_SESSION_ENDPOINT: "ftp://example.com/join" });
+  assert.deepEqual(body.web, {});
+  assert.equal(body.protocol_version, "1.0");
+});
+
+// The alternate document describes the same website. 0.4 has the same field with the same
+// meaning, so an agent that lands there is told about the join too.
+test("the 0.4 alternate carries the browser session endpoint as well", async () => {
+  const cfg = loadConfig({
+    ...env,
+    SITE_DOMAIN: "example.com",
+    POPPY_BROWSER_SESSION_ENDPOINT: "/poppy/browser-session",
+  });
+  const body = await docFor(cfg, "0.4");
+  assert.equal(body.protocol_version, "0.4");
+  assert.deepEqual(body.web, {
+    browser_session_endpoint: "https://example.com/poppy/browser-session",
+  });
+});
+
 test("scope descriptions and hints are published when set", async () => {
   const body = await poppy({
     POPPY_SCOPES: '{"orders:read": "See your orders", "orders:write": "Place an order"}',

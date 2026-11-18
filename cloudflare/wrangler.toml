@@ -46,7 +46,7 @@ RESOURCE_URL = "https://example.com/api"
 # The values below are illustrations, not defaults; left commented out, both fields are
 # omitted from the metadata rather than published empty.
 #
-# SCOPES_SUPPORTED = "orders:read,orders:write"
+# SCOPES_SUPPORTED = "orders:read,orders:write,poppy:browser-sign-in"
 # AUTHORIZATION_DETAILS_TYPES = "purchase"
 
 # The Poppy discovery document at /.well-known/poppy.json. It names your organization and
@@ -63,8 +63,20 @@ RESOURCE_URL = "https://example.com/api"
 # What each scope lets an agent do, in the words your customer approves, and how
 # consequential it is. JSON, because the descriptions are prose.
 # changes is none, reversible or irreversible; personal_data is true or false.
-# POPPY_SCOPES = """{"orders:read": "See your orders", "orders:write": "Place an order with your saved address and card"}"""
-# POPPY_SCOPE_HINTS = """{"orders:read": {"changes": "none", "personal_data": true}, "orders:write": {"changes": "irreversible", "personal_data": true}}"""
+# POPPY_SCOPES = """{"orders:read": "See your orders", "orders:write": "Place an order with your saved address and card", "poppy:browser-sign-in": "Use the website signed in, with the other access you approve"}"""
+# POPPY_SCOPE_HINTS = """{"orders:read": {"changes": "none", "personal_data": true}, "orders:write": {"changes": "irreversible", "personal_data": true}, "poppy:browser-sign-in": {"changes": "none", "personal_data": true}}"""
+
+# Where an agent's own BROWSER joins a Session (Poppy section 6), so the site can recognize
+# it as the same agent your APIs see. Your site serves this endpoint — the worker only names
+# it. A path is resolved against the host the document was asked for; an absolute HTTPS URL
+# on any host works too.
+#
+# LISTING IT IS A PROMISE. An agent that sees it MUST join before it browses, so a URL that
+# doesn't answer breaks browsing that worked before. Set it only once the endpoint is live.
+#
+# Set it only if your issuer can also grant `poppy:browser-sign-in`: a site that lists this
+# endpoint and offers sign-in MUST support that scope (section 6).
+# POPPY_BROWSER_SESSION_ENDPOINT = "/poppy/browser-session"
 
 # Other protocol versions to serve beside the preferred one, which is 1.0. Each gets its own
 # document at /poppy/<version>.json and is named in supported_versions.

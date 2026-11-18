@@ -118,6 +118,7 @@ Then have your site accept the tokens. See [Accepting the tokens in your backend
 | `POPPY_SCOPES`, `POPPY_SCOPE_HINTS` | What each scope lets an agent do, and how consequential it is, written into the Poppy document as JSON |
 | `SUPPORTED_VERSIONS` | Protocol versions to serve beside the preferred one (`1.0`), comma separated. Each gets its own document at `/poppy/<version>.json`, named in `supported_versions`. **Leave it unset** and `0.4` is served as well, so agents built against that draft keep working — before 1.0 an agent refuses a document whose `major.minor` it does not implement, so it cannot read the 1.0 one. Set it to `""` to serve `1.0` alone. |
 | `POPPY_APIS` | APIs the Poppy document advertises, as JSON. Paths are resolved against the host it was asked for. |
+| `POPPY_BROWSER_SESSION_ENDPOINT` | Where an agent's own browser joins a Session (Poppy section 6). **Your site serves this endpoint; the worker only names it.** A path is resolved against the host the document was asked for; an absolute HTTPS URL on any host also works. Unset, `web` stays empty and agents browse signed out. Listing it is a promise — an agent that sees it MUST join before browsing — so set it only once the endpoint answers and your issuer can grant `poppy:browser-sign-in`. |
 | `AGENT_SESSION_COOKIE` | The front door's session cookie. Defaults to `DS`. |
 | `UPSTREAM_ORIGIN` | Local testing only: the site to forward to |
 
