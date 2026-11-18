@@ -148,21 +148,23 @@ test("the Poppy document names the site and the configured issuer", async () => 
   assert.equal(response.headers.get("content-type"), "application/json");
   const body = (await response.json()) as Poppy;
   assert.deepEqual(body, {
-    protocol_version: "0.4",
+    protocol_version: "1.0",
+    supported_versions: { "0.4": "https://example.com/poppy/0.4.json" },
     organization: { name: "Example Store", domain: "example.com" },
     auth: { issuer: "https://api.descope.com/P123" },
     web: {},
   });
 });
 
-// Pre-1.0 the match has to be exact (3.4), so an agent on 0.4 refuses a 0.3 document
-// rather than reading it and ignoring what it doesn't know. Nothing else in this file
-// matters if this is wrong.
-test("the Poppy document declares draft 0.4", async () => {
-  assert.equal((await poppy()).protocol_version, "0.4");
+// 3.4: the version decides whether an agent reads the document at all. From 1.0 the same
+// major is enough, so a 1.1 agent uses this one and ignores what it doesn't know — but an
+// agent built against 0.4 still needs 0.4 exactly, which is why the alternate below
+// exists. Nothing else in this file matters if this is wrong.
+test("the Poppy document declares 1.0", async () => {
+  assert.equal((await poppy()).protocol_version, "1.0");
 });
 
-// 0.1 advertised Device Sign-In here. 0.4 takes it from the authorization server's
+// 0.1 advertised Device Sign-In here. 1.0 takes it from the authorization server's
 // grant_types_supported instead, so restating it would be inventing a field.
 test("the Poppy document carries no auth.device", async () => {
   assert.equal("device" in (await poppy()).auth, false);
@@ -176,6 +178,27 @@ test("the Poppy issuer is the one the protected resource metadata names", async 
 test("the Poppy domain comes from RESOURCE_URL, and SITE_DOMAIN overrides it", async () => {
   assert.equal((await poppy({ RESOURCE_URL: "https://api.example.com/v2" })).organization.domain, "api.example.com");
   assert.equal((await poppy({ SITE_DOMAIN: "example.com" })).organization.domain, "example.com");
+});
+
+// 1.0 section 3.1 adds the port to this field: `domain` MUST be the host that served the
+// document "with its port when that isn't 443". 0.4 said only "the host". An agent compares
+// the value to the host it fetched from, so dropping the port on a site served anywhere but
+// 443 — a staging host, or `wrangler dev` — fails that check and discovery stops. Pinned
+// because the obvious "tidy-up" here is to normalize the port away.
+test("the Poppy domain keeps a port that isn't 443 (3.1)", async () => {
+  assert.equal(
+    (await poppy({ RESOURCE_URL: "https://staging.example.com:8443/api" })).organization.domain,
+    "staging.example.com:8443",
+  );
+  assert.equal(
+    (await poppy({ RESOURCE_URL: "http://localhost:8787/api" })).organization.domain,
+    "localhost:8787",
+  );
+  // 443 is the default and stays off.
+  assert.equal(
+    (await poppy({ RESOURCE_URL: "https://example.com:443/api" })).organization.domain,
+    "example.com",
+  );
 });
 
 test("scope descriptions and hints are published when set", async () => {
@@ -332,10 +355,42 @@ const docFor = async (cfg: ReturnType<typeof loadConfig>, version?: string) =>
 
 test("the preferred document links the older versions it also serves", async () => {
   const body = await docFor(withVersions("0.3"));
-  assert.equal(body.protocol_version, "0.4");
+  assert.equal(body.protocol_version, "1.0");
   assert.deepEqual(body.supported_versions, {
     "0.3": "https://example.com/poppy/0.3.json",
   });
+});
+
+// Moving the preferred version to 1.0 would otherwise cut off every agent built against
+// 0.4: pre-1.0 compatibility is exact (3.4), so a 0.4 agent does not read a 1.0 document,
+// it refuses it. Keeping 0.4 linked without anyone configuring it is what makes the bump
+// safe, so this is a default, not a setting someone has to remember.
+test("0.4 stays served and linked when SUPPORTED_VERSIONS is unset", async () => {
+  const body = await docFor(loadConfig({ ...env, SITE_DOMAIN: "example.com" }));
+  assert.deepEqual(body.supported_versions, {
+    "0.4": "https://example.com/poppy/0.4.json",
+  });
+});
+
+// The other half of that promise: the linked URL has to answer, with the version it is
+// listed under and no supported_versions of its own (3.4).
+test("the 0.4 alternate is fetchable at the path the document names", async () => {
+  const cfg = loadConfig({ ...env, SITE_DOMAIN: "example.com" });
+  const linked = (await docFor(cfg)).supported_versions!["0.4"];
+  assert.equal(new URL(linked).pathname, versionedPoppyPath("0.4"));
+  const body = await docFor(cfg, "0.4");
+  assert.equal(body.protocol_version, "0.4");
+  assert.equal("supported_versions" in body, false);
+  // 3.4: every document served at once names the same domain and selects the same issuer.
+  assert.equal(body.organization.domain, "example.com");
+  assert.equal(body.auth.issuer, "https://api.descope.com/P123");
+});
+
+// A site that wants 1.0 alone can say so. Unset means "keep what you were serving";
+// explicitly empty means "nothing but the preferred version".
+test("an empty SUPPORTED_VERSIONS serves the preferred version alone", async () => {
+  assert.deepEqual(withVersions("").supportedVersions, []);
+  assert.equal("supported_versions" in (await docFor(withVersions(""))), false);
 });
 
 // 3.4: the linked document has the version it is listed under, and no supported_versions
@@ -356,10 +411,6 @@ test("both documents name the same domain and the same issuer", async () => {
   assert.equal(current.auth.issuer, older.auth.issuer);
 });
 
-test("no supported_versions key when nothing older is served", async () => {
-  assert.equal("supported_versions" in (await docFor(withVersions(""))), false);
-});
-
 // The URL must be on the host that served poppy.json, so an uploaded file elsewhere
 // cannot be linked in as this Company's document.
 test("the linked URL sits on the host that served the document", async () => {
@@ -371,8 +422,8 @@ test("unusable version entries are dropped", async () => {
   assert.deepEqual(withVersions("0.3, 0.2").supportedVersions, ["0.3", "0.2"]);
   // Not major.minor.
   assert.deepEqual(withVersions("nonsense,0.3.1,v0.3").supportedVersions, []);
-  // A document cannot be an older alternative to itself.
-  assert.deepEqual(withVersions("0.4").supportedVersions, []);
+  // A document cannot be an alternative to itself.
+  assert.deepEqual(withVersions("1.0").supportedVersions, []);
   // Repeats collapse.
   assert.deepEqual(withVersions("0.3,0.3").supportedVersions, ["0.3"]);
 });
