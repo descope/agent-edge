@@ -167,11 +167,32 @@ export function poppyDocument(config: Config, url: URL, version: string = POPPY_
       ...(config.scopeDescriptions ? { scopes: config.scopeDescriptions } : {}),
       ...(config.scopeHints ? { scope_hints: config.scopeHints } : {}),
     },
-    // The site is a website. 1.0 requires at least one of `agent`, `apis` or `web`, and
-    // leaving `browser_session_endpoint` out says agents browse it signed out (section 6),
-    // which is true of any site this worker fronts: the front door's cookie is Agent Edge's
-    // own mechanism, not the protocol's browser join.
-    web: {},
+    // The site is a website. 1.0 requires at least one of `agent`, `apis` or `web`.
+    //
+    // `browser_session_endpoint` is where the agent's own browser joins a Session (section 6)
+    // — the protocol's browser join, which is not the same thing as the front door's cookie.
+    // The front door signs an agent in and hands it a token; the join is the handshake that
+    // lets the agent's BROWSER act in a Session the Company can recognize. This worker
+    // advertises the endpoint, it does not serve it: the one-time codes that step 2 and 3
+    // trade need storage this worker has none of, and the store behind it is where the
+    // account and its scopes already live.
+    //
+    // ADVERTISING IT IS A PROMISE, not a hint. An agent that reads this field MUST join
+    // before it browses, so a URL that doesn't answer breaks browsing that worked before.
+    // Hence unset by default, and resolved against the host the document was asked for, so
+    // a path follows the site onto whichever host the agent opened.
+    //
+    // No `web.unscoped`. That flag says the website can't tell the Company's scopes apart,
+    // so `poppy:browser-sign-in` would be the account's full access there. The store does
+    // tell them apart, which is the scoped case: the scope "allows nothing beyond the
+    // token's other scopes" (6), and needs no separate approval from the User.
+    web: {
+      ...(config.browserSessionEndpoint
+        ? {
+            browser_session_endpoint: new URL(config.browserSessionEndpoint, url.origin).toString(),
+          }
+        : {}),
+    },
     // Left out entirely when there is nothing to advertise, rather than sent as an empty list.
     ...(config.apis.length
       ? { apis: config.apis.map((api) => ({ ...api, url: new URL(api.url, url.origin).toString() })) }
