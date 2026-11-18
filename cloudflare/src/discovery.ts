@@ -115,18 +115,25 @@ export function poppyCanonicalRedirect(config: Config, url: URL): Response | und
 }
 
 /**
- * Poppy discovery (draft 0.4): one document that tells an agent who this site is, what it
+ * Poppy discovery (1.0): one document that tells an agent who this site is, what it
  * can ask for, and where to sign in, so it can start without being told.
- * https://personalagentprotocol.org/docs/0.4/spec
+ * https://personalagentprotocol.org/docs/1.0/spec
  *
- * THE VERSION IS LOAD-BEARING. Before 1.0, two versions are compatible only when major AND
- * minor match (3.4), so an agent that speaks 0.4 does not downgrade to a 0.3 document — it
- * declines to use it. Bumping this string is not cosmetic, and neither is leaving it stale.
+ * THE VERSION IS LOAD-BEARING. From 1.0 the same major version is enough for compatibility
+ * (3.4), so a later minor reads this document and ignores what it doesn't recognize. Before
+ * 1.0 the match had to be exact, which cuts the other way: an agent that speaks 0.4 declines
+ * a 1.0 document rather than downgrading. That is why 0.4 keeps its own document here, and
+ * why dropping it from supported_versions is not a tidy-up — it is a cut-off.
+ *
+ * `organization.domain` carries the port when it isn't 443 (1.0 section 3.1, which 0.4 did
+ * not say). The agent compares the field to the host it fetched from, so a site on another
+ * port — staging, or `wrangler dev` — needs it. `URL.host` already includes a non-default
+ * port, which is why `siteDomain` is built from it and not from `hostname`.
  *
  * `auth.device` is gone since 0.1. Device Sign-In is advertised by the authorization
  * server's `grant_types_supported`, not here, so the document no longer restates it.
  *
- * `auth.issuer` is optional in 0.4 whenever the protected resource metadata names a single
+ * `auth.issuer` is optional in 1.0 whenever the protected resource metadata names a single
  * authorization server (3.1), which is exactly what this worker publishes. It is included
  * anyway, from the same DESCOPE_ISSUER that metadata uses, so the two documents cannot
  * point agents at different servers — which is the thing the rule exists to prevent.
@@ -137,7 +144,7 @@ export function poppyCanonicalRedirect(config: Config, url: URL): Response | und
  * naming another would fail that check.
  */
 export function poppyDocument(config: Config, url: URL, version: string = POPPY_VERSION): Response {
-  // Only the document this worker prefers links the others. An older draft's document
+  // Only the document this worker prefers links the others. An alternate version's document
   // carries the version it is listed under and no supported_versions of its own (3.4).
   const alternates = version === POPPY_VERSION ? config.supportedVersions : [];
   const body = {
@@ -160,7 +167,7 @@ export function poppyDocument(config: Config, url: URL, version: string = POPPY_
       ...(config.scopeDescriptions ? { scopes: config.scopeDescriptions } : {}),
       ...(config.scopeHints ? { scope_hints: config.scopeHints } : {}),
     },
-    // The site is a website. 0.4 requires at least one of `agent`, `apis` or `web`, and
+    // The site is a website. 1.0 requires at least one of `agent`, `apis` or `web`, and
     // leaving `browser_session_endpoint` out says agents browse it signed out (section 6),
     // which is true of any site this worker fronts: the front door's cookie is Agent Edge's
     // own mechanism, not the protocol's browser join.

@@ -33,8 +33,20 @@ export interface Env {
   AGENT_SESSION_COOKIE?: string;
 }
 
-/** The Poppy draft this worker's own poppy.json follows. */
-export const POPPY_VERSION = "0.4";
+/** The Poppy version this worker's own poppy.json follows. */
+export const POPPY_VERSION = "1.0";
+
+/**
+ * Versions served beside the preferred one when SUPPORTED_VERSIONS says nothing (3.4).
+ *
+ * Pre-1.0, two versions are compatible only when major AND minor match, so an agent built
+ * against 0.4 does not read a 1.0 document and ignore the parts it doesn't know — it refuses
+ * the document and discovery stops. Moving the preferred version to 1.0 would therefore cut
+ * those agents off, silently, on deploy. Keeping 0.4 at its own URL and linked from
+ * poppy.json is what makes the bump safe, so it is the default rather than a setting someone
+ * has to remember. Set SUPPORTED_VERSIONS to an empty string to serve 1.0 alone.
+ */
+export const PREVIOUS_POPPY_VERSIONS = ["0.4"];
 
 export type Mode = "monitor" | "route";
 
@@ -182,20 +194,22 @@ function poppyScopeHints(value: string | undefined): Record<string, ScopeHint> |
 }
 
 /**
- * Older protocol versions to serve beside the current one (3.4).
+ * Other protocol versions to serve beside the preferred one (3.4).
  *
- * Pre-1.0 two versions are compatible only when major AND minor match, so an agent built
- * against an older draft refuses the current document outright. Listing a version here
- * serves that draft its own document at its own URL, and names it in supported_versions,
- * which is how the protocol lets agents move at their own pace instead of being cut off
- * by a draft bump.
+ * Listing a version here serves it its own document at its own URL, and names it in
+ * supported_versions, which is how the protocol lets agents move at their own pace instead
+ * of being cut off by a version bump.
+ *
+ * UNSET IS NOT EMPTY. Unset keeps PREVIOUS_POPPY_VERSIONS, so upgrading this worker doesn't
+ * drop the agents that were working a moment ago. An empty string is a deliberate "the
+ * preferred version only", and is honoured as one.
  *
  * Entries must be major.minor, and must not repeat the version this worker publishes: a
- * document cannot be an older alternative to itself.
+ * document cannot be an alternative to itself.
  */
 function supportedVersions(value: string | undefined, current: string): string[] {
   const out: string[] = [];
-  for (const entry of list(value)) {
+  for (const entry of list(value ?? PREVIOUS_POPPY_VERSIONS.join(","))) {
     if (!/^\d+\.\d+$/.test(entry) || entry === current) {
       console.error(JSON.stringify({
         event: "config_error",
