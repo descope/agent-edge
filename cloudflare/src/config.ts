@@ -26,6 +26,12 @@ export interface Env {
   HINT_SIGNING_SECRET?: string;
   API_PATHS?: string;
   INJECT_LOGIN_HINT?: string;
+  /**
+   * Verify the `poppy-session` header (spec 5.3) and tell the origin which agent, User and
+   * Session a request belongs to. Off unless set to "true": a worker already in front of a
+   * live site should not start refusing requests because it was upgraded.
+   */
+  VERIFY_POPPY_SESSION?: string;
   /** Local development only: forward to this origin instead of the request's host. */
   UPSTREAM_ORIGIN?: string;
   /** The cookie the front door sets once an agent is signed in. Defaults to DS. */
@@ -67,6 +73,7 @@ export interface Config {
   hintSigningSecret?: string;
   apiPaths: string[];
   injectLoginHint: boolean;
+  verifyPoppySession: boolean;
   upstreamOrigin?: string;
   agentSessionCookie: string;
 }
@@ -217,6 +224,7 @@ export function loadConfig(env: Env): Config {
     hintSigningSecret: env.HINT_SIGNING_SECRET || undefined,
     apiPaths: list(env.API_PATHS ?? "/api/*"),
     injectLoginHint: env.INJECT_LOGIN_HINT !== "false",
+    verifyPoppySession: env.VERIFY_POPPY_SESSION === "true",
     upstreamOrigin: env.UPSTREAM_ORIGIN ? requiredUrl("UPSTREAM_ORIGIN", env.UPSTREAM_ORIGIN) : undefined,
     agentSessionCookie: env.AGENT_SESSION_COOKIE || "DS",
   };
