@@ -118,6 +118,7 @@ Then have your site accept the tokens. See [Accepting the tokens in your backend
 | `POPPY_SCOPES`, `POPPY_SCOPE_HINTS` | What each scope lets an agent do, and how consequential it is, written into the Poppy document as JSON |
 | `SUPPORTED_VERSIONS` | Older protocol drafts to serve beside the current one, comma separated, e.g. `0.3`. Each gets its own document at `/poppy/<version>.json`, named in `supported_versions`. Agents built against an older draft keep working instead of refusing the current document. |
 | `POPPY_APIS` | APIs the Poppy document advertises, as JSON. Paths are resolved against the host it was asked for. |
+| `VERIFY_POPPY_SESSION` | `true` verifies the `poppy-session` header (spec 5.3) and tells the origin which agent, User and Session each request belongs to, in `x-descope-agent-client-id`, `x-descope-agent-session` and `x-descope-agent-user`. A header that fails the check is answered with `400 invalid_session`. Off by default, so upgrading changes nothing until you set it. |
 | `AGENT_SESSION_COOKIE` | The front door's session cookie. Defaults to `DS`. |
 | `UPSTREAM_ORIGIN` | Local testing only: the site to forward to |
 

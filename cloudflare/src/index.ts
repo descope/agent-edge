@@ -5,9 +5,16 @@ import { agentsPage, isResourceMetadataPath, metadataUrl, POPPY_PATH, poppyCanon
 import { signAgentHint } from "./hint";
 import { cachedJsonFetcher } from "./keyCache";
 import { injectLoginHint } from "./loginHint";
+import { invalidSessionResponse, verifySession, type SessionResult } from "./session";
 
 /** Headers this worker sets for the origin. Incoming copies are always stripped. */
-const AGENT_HEADERS = ["x-descope-agent", "x-descope-agent-origin"];
+const AGENT_HEADERS = [
+  "x-descope-agent",
+  "x-descope-agent-origin",
+  "x-descope-agent-client-id",
+  "x-descope-agent-session",
+  "x-descope-agent-user",
+];
 
 /**
  * Set on every request the worker forwards. If one comes back, the worker is forwarding
@@ -78,6 +85,32 @@ export default {
       return agentsPage(config, await connectUrl(agent, config, url));
     }
 
+    // Which Session this request belongs to (spec 5.3). Web Bot Auth says which operator
+    // sent a request; this says which agent, acting for which User, in which Session —
+    // identifiers that exist nowhere else, since the Personal Agent assigns the User ID.
+    let session: SessionResult = { status: "none", reason: "verification off" };
+    if (config.verifyPoppySession) {
+      session = await verifySession(request, config, cachedJsonFetcher(ctx));
+      if (session.status === "invalid") {
+        console.log(JSON.stringify({
+          event: "poppy_session_invalid",
+          reason: session.reason,
+          method: request.method,
+          path: url.pathname,
+        }));
+        // 5.3 wants the agent told, "so the Personal Agent learns of a mistake in its
+        // header" — and told with a 400, since a 401 would make an OAuth library throw
+        // away an access token that is perfectly good.
+        return invalidSessionResponse(session);
+      }
+      // 5.3: "An edge that verifies delegated Session JWTs can authenticate the client
+      // without this extra signature." So a verified JWT identifies the agent even when
+      // it sent no Web Bot Auth signature, and blocked paths should apply to it.
+      if (session.status === "verified" && agent.status === "none") {
+        agent = { status: "verified", reason: "Poppy Session JWT" };
+      }
+    }
+
     const action = decideAction(agent, config, url.pathname, signedIn);
 
     if (agent.status !== "none") {
@@ -89,6 +122,8 @@ export default {
         signature_agent: agent.signatureAgent ?? null,
         claimed_signature_agent: agent.claimedSignatureAgent ?? null,
         reason: agent.reason,
+        poppy_client_id: session.clientId ?? null,
+        poppy_sid: session.sid ?? null,
         method: request.method,
         path: url.pathname,
       }));
@@ -102,6 +137,13 @@ export default {
     if (agent.status !== "none") {
       forwarded.headers.set("x-descope-agent", agent.status);
       if (agent.signatureAgent) forwarded.headers.set("x-descope-agent-origin", agent.signatureAgent);
+    }
+    // Only ever set from a JWT this worker verified. The incoming copies were stripped
+    // above, so the origin can trust these the way it trusts x-descope-agent.
+    if (session.status === "verified") {
+      forwarded.headers.set("x-descope-agent-client-id", session.clientId!);
+      forwarded.headers.set("x-descope-agent-session", session.sid!);
+      forwarded.headers.set("x-descope-agent-user", session.userId!);
     }
     let response = await fetch(new Request(upstreamUrl(url, config), forwarded));
 
