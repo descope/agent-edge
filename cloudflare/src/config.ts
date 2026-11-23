@@ -37,6 +37,14 @@ export interface Env {
    * passing it to the origin and decorating whatever comes back. Off unless set to "true".
    */
   VALIDATE_ACCESS_TOKENS?: string;
+  /**
+   * Where the Poppy browser join lives (spec section 6), for example
+   * `/poppy/browser-session`. Unset, the join is off and nothing is served. Needs the
+   * POPPY_JOIN Durable Object binding and HINT_SIGNING_SECRET.
+   */
+  BROWSER_JOIN_PATH?: string;
+  /** One object per join code. See the README for the binding. */
+  POPPY_JOIN?: DurableObjectNamespace;
   /** Local development only: forward to this origin instead of the request's host. */
   UPSTREAM_ORIGIN?: string;
   /** The cookie the front door sets once an agent is signed in. Defaults to DS. */
@@ -80,6 +88,8 @@ export interface Config {
   injectLoginHint: boolean;
   verifyPoppySession: boolean;
   validateAccessTokens: boolean;
+  /** Where the browser join is served, when it is on at all. */
+  browserJoinPath?: string;
   upstreamOrigin?: string;
   agentSessionCookie: string;
 }
@@ -232,9 +242,21 @@ export function loadConfig(env: Env): Config {
     injectLoginHint: env.INJECT_LOGIN_HINT !== "false",
     verifyPoppySession: env.VERIFY_POPPY_SESSION === "true",
     validateAccessTokens: env.VALIDATE_ACCESS_TOKENS === "true",
+    // Only on when it can actually work: a path to serve, somewhere to keep a code for a
+    // minute, and a secret to sign the result with. Half-configured is off, not broken.
+    browserJoinPath:
+      env.BROWSER_JOIN_PATH?.trim() && env.POPPY_JOIN && env.HINT_SIGNING_SECRET
+        ? normalizePath(env.BROWSER_JOIN_PATH.trim())
+        : undefined,
     upstreamOrigin: env.UPSTREAM_ORIGIN ? requiredUrl("UPSTREAM_ORIGIN", env.UPSTREAM_ORIGIN) : undefined,
     agentSessionCookie: env.AGENT_SESSION_COOKIE || "DS",
   };
+}
+
+/** A leading slash and no trailing one, so the path and its `/authorize` child compose. */
+function normalizePath(value: string): string {
+  const withSlash = value.startsWith("/") ? value : `/${value}`;
+  return withSlash.length > 1 ? withSlash.replace(/\/+$/, "") : withSlash;
 }
 
 /** Matches "/login" exactly, or "/account/*" as a prefix. */
