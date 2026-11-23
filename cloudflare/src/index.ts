@@ -6,6 +6,7 @@ import { signAgentHint } from "./hint";
 import { cachedJsonFetcher } from "./keyCache";
 import { injectLoginHint } from "./loginHint";
 import { invalidSessionResponse, verifySession, type SessionResult } from "./session";
+import { validateAccessToken, type TokenResult } from "./accessToken";
 
 /** Headers this worker sets for the origin. Incoming copies are always stripped. */
 const AGENT_HEADERS = [
@@ -14,6 +15,8 @@ const AGENT_HEADERS = [
   "x-descope-agent-client-id",
   "x-descope-agent-session",
   "x-descope-agent-user",
+  "x-descope-agent-subject",
+  "x-descope-agent-scope",
 ];
 
 /**
@@ -120,6 +123,23 @@ export default {
     if (action === "redirect") return redirectToFrontDoor(agent, config, url);
     if (action === "block") return blocked(request, config);
 
+    // The access token, on the paths that take one. A request with no token passes through
+    // untouched: an API may well have public operations, and refusing them here would be
+    // the worker inventing an authorization rule the origin never asked for.
+    let token: TokenResult = { status: "none", reason: "validation off" };
+    if (config.validateAccessTokens && pathMatches(url.pathname, config.apiPaths)) {
+      token = await validateAccessToken(request, config, cachedJsonFetcher(ctx));
+      if (token.status === "invalid") {
+        console.log(JSON.stringify({
+          event: "access_token_invalid",
+          reason: token.reason,
+          method: request.method,
+          path: url.pathname,
+        }));
+        return invalidTokenResponse(config, token);
+      }
+    }
+
     // Forward to the origin with trustworthy agent headers.
     const forwarded = withoutAgentHeaders(request);
     if (agent.status !== "none") {
@@ -133,11 +153,19 @@ export default {
       forwarded.headers.set("x-descope-agent-session", session.sid!);
       forwarded.headers.set("x-descope-agent-user", session.userId!);
     }
+    if (token.status === "valid") {
+      if (token.subject) forwarded.headers.set("x-descope-agent-subject", token.subject);
+      forwarded.headers.set("x-descope-agent-scope", (token.scopes ?? []).join(" "));
+    }
     let response = await fetch(new Request(upstreamUrl(url, config), forwarded));
 
-    // Point MCP and OAuth clients at the metadata when the API turns them away.
-    if (response.status === 401 && pathMatches(url.pathname, config.apiPaths)) {
-      response = addDiscoveryChallenge(response, metadataUrl(config));
+    // Point MCP and OAuth clients at the metadata when the API turns them away, and name
+    // the scopes if the origin didn't. Poppy section 7 wants them on both refusals: a 401
+    // carrying no scopes leaves an agent nothing to act on, which is how sign-in loops
+    // start.
+    if ((response.status === 401 || response.status === 403) &&
+        pathMatches(url.pathname, config.apiPaths)) {
+      response = addDiscoveryChallenge(response, metadataUrl(config), config.scopes);
     }
 
     // Show browser agents the way to /agents on the human login page.
@@ -215,6 +243,29 @@ function blocked(request: Request, config: Config): Response {
     return new Response(html, { status: 403, headers: { ...headers, "content-type": "text/html; charset=utf-8" } });
   }
   return Response.json({ error: "agent_not_allowed", message }, { status: 403, headers });
+}
+
+/**
+ * A token the worker could not verify. RFC 6750 section 3.1 calls this `invalid_token` with
+ * a 401, and section 7 of the Poppy spec adds the resource metadata and the scopes, so an
+ * agent can tell "your token is wrong" from "you need more than it carries".
+ *
+ * The description is the reason, which names the check that failed. That is a deliberate
+ * trade: it tells anyone holding a forged token which claim disagreed, and it is the only
+ * thing that makes an agent's failure diagnosable at all. The same trade, with the same
+ * reasoning, is already made by AGENT_DEBUG_REFUSALS in the Northbound sample.
+ */
+function invalidTokenResponse(config: Config, token: TokenResult): Response {
+  const parts = [
+    'Bearer error="invalid_token"',
+    `error_description="${token.reason.replace(/[^ -~]+/g, " ").replace(/"/g, "'")}"`,
+    `resource_metadata="${metadataUrl(config)}"`,
+  ];
+  if (config.scopes.length > 0) parts.push(`scope="${config.scopes.join(" ")}"`);
+  return Response.json(
+    { error: "invalid_token", error_description: token.reason },
+    { status: 401, headers: { "www-authenticate": parts.join(", "), "cache-control": "no-store" } },
+  );
 }
 
 function escapeHtml(value: string): string {
