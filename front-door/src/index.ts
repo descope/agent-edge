@@ -1,7 +1,8 @@
 import { loadConfig, type Config, type Env, type RateLimiter, type Tier } from "./config";
-import { deviceFlowAvailable, pollToken, refreshTokens, startCiba, startDevice, type TokenSet } from "./descope";
+import { deviceFlowAvailable, discover, pollToken, refreshTokens, startCiba, startDevice, type TokenSet } from "./descope";
 import { base64Url, randomCode, utf8 } from "./encoding";
 import { verifyHint, verifySigned } from "./hint";
+import { validateAccessToken } from "../../cloudflare/src/accessToken";
 import { connectPage, waitingPage, type ConnectOptions } from "./pages";
 import { seal, unseal, type PendingRequest, type RefreshState } from "./state";
 import { verifiedSignatureAgent } from "./webBotAuth";
@@ -281,18 +282,90 @@ async function refresh(request: Request, url: URL, config: Config): Promise<Resp
 }
 
 /**
+ * Who the approval should go to.
+ *
+ * Prefers the agent's access token: we validate it anyway to know it is real, and the email
+ * is in it. Falls back to the email the store signed, for stores that still send one. When
+ * both are present they must agree — a token for one person and a signed payload naming
+ * another is either a mistake or an attempt, and neither should send an approval.
+ *
+ * Validation needs a resource to check `aud` against. Without RESOURCE configured there is
+ * nothing to check it against, so the token is ignored rather than half-trusted.
+ */
+async function emailForStepUp(
+  request: Request,
+  config: Config,
+  signedEmail: string | undefined,
+): Promise<{ email: string } | { error: Response }> {
+  let fromToken: string | undefined;
+
+  if (request.headers.has("authorization") && config.resource) {
+    const { issuer } = await discover(config);
+    const token = await validateAccessToken(
+      request,
+      { issuer, resource: config.resource },
+      cachedJson,
+    );
+    if (token.status === "invalid") {
+      console.log(JSON.stringify({ event: "step_up_token_invalid", reason: token.reason }));
+      return {
+        error: json({ error: "invalid_token", message: "That access token isn't valid here." }, 401),
+      };
+    }
+    fromToken = token.email;
+  }
+
+  if (fromToken && signedEmail && fromToken.toLowerCase() !== signedEmail.toLowerCase()) {
+    console.log(JSON.stringify({ event: "step_up_email_mismatch" }));
+    return {
+      error: json({ error: "invalid_request", message: "This approval link doesn't match the signed-in user." }, 400),
+    };
+  }
+
+  const email = fromToken ?? signedEmail;
+  if (!email || !EMAIL.test(email)) {
+    return {
+      error: json({ error: "invalid_request", message: "This approval link is invalid or expired. Go back and try again." }, 400),
+    };
+  }
+  return { email };
+}
+
+/** Key sets change rarely and the isolate is short-lived, so one map is cache enough. */
+const jsonCache = new Map<string, unknown>();
+const cachedJson = async (url: string): Promise<unknown> => {
+  const cached = jsonCache.get(url);
+  if (cached !== undefined) return cached;
+  const response = await fetch(url, { headers: { accept: "application/json" }, redirect: "manual" });
+  if (!response.ok) throw new Error(`fetch failed (${response.status})`);
+  const value = await response.json();
+  jsonCache.set(url, value);
+  return value;
+};
+
+/**
  * Step-up for one action the agent's token doesn't allow, such as a purchase on a read-only
  * connection. The store sends the agent here with a signed description of the action, so the
  * approval message shows exactly what the store will do, and the agent can't change it.
+ *
+ * Who to ask comes from the agent's own access token when it presents one. The store used
+ * to have to put the email in that signed payload, which meant every store knowing and
+ * passing on an address we can read for ourselves. The *action* still has to be signed:
+ * an agent that could name its own amount would ask the person to approve five dollars
+ * and spend four thousand.
  */
 async function stepUp(request: Request, url: URL, config: Config): Promise<Response> {
   if (!config.stepUpSecret) return json({ error: "not_found" }, 404);
-  const action = await verifySigned<{ email: string; amount: string; exp: number }>(
+  const action = await verifySigned<{ email?: string; amount: string; exp: number }>(
     url.searchParams.get("request") ?? "", config.stepUpSecret,
   );
-  if (!action || !EMAIL.test(action.email) || !/^\$\d+(\.\d{2})?$/.test(action.amount)) {
+  if (!action || !/^\$\d+(\.\d{2})?$/.test(action.amount)) {
     return json({ error: "invalid_request", message: "This approval link is invalid or expired. Go back and try again." }, 400);
   }
+
+  const identified = await emailForStepUp(request, config, action.email);
+  if ("error" in identified) return identified.error;
+  const email = identified.email;
 
   // The agent's original connection says which client to use and how to name it.
   const name = config.cookies?.refresh ?? "DSR";
@@ -312,7 +385,7 @@ async function stepUp(request: Request, url: URL, config: Config): Promise<Respo
   try {
     ciba = await startCiba(config, {
       clientId,
-      email: action.email,
+      email,
       scope: config.stepUpScope,
       bindingMessage: `${agentLabel(agent)} wants to place a ${action.amount} order at ${config.siteName}. Code ${code}`,
     });

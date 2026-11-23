@@ -137,7 +137,7 @@ export default {
     // the worker inventing an authorization rule the origin never asked for.
     let token: TokenResult = { status: "none", reason: "validation off" };
     if (config.validateAccessTokens && pathMatches(url.pathname, config.apiPaths)) {
-      token = await validateAccessToken(request, config, cachedJsonFetcher(ctx));
+      token = await validateAccessToken(request, { issuer: config.issuer, resource: config.resourceUrl }, cachedJsonFetcher(ctx));
       if (token.status === "invalid") {
         console.log(JSON.stringify({
           event: "access_token_invalid",

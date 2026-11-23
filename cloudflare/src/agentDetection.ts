@@ -20,8 +20,8 @@ export interface AgentResult {
   reason: string;
 }
 
-/** Fetches and parses JSON. Injected so the worker can cache and tests can mock. */
-export type JsonFetcher = (url: string) => Promise<unknown>;
+export type { JsonFetcher } from "./jwt";
+import type { JsonFetcher } from "./jwt";
 
 const NO_AGENT: AgentResult = { status: "none", reason: "no agent signals" };
 
