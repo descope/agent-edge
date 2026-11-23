@@ -16,12 +16,35 @@ export function withResourceMetadata(existing: string | null, metadataUrl: strin
   return `${existing.trim()}, Bearer ${param}`;
 }
 
-/** Returns a copy of a 401 response with the discovery challenge added. */
-export function addDiscoveryChallenge(response: Response, metadataUrl: string): Response {
+/**
+ * Adds the scopes a refusal needs, when the challenge does not already name them.
+ *
+ * Poppy section 7 asks for them in both refusals, and is specific about the 401: a request
+ * with no token gets 401 "with no error code", and "the challenge's `scope` attribute names
+ * the scopes needed [...] The Personal Agent handles it as `insufficient_scope`."
+ *
+ * A bare 401 is the difference between an agent that goes and asks the person for the right
+ * scope and one that retries, fails again, and falls back to asking them to sign in — which
+ * reads as a broken integration rather than a missing attribute.
+ *
+ * An existing `scope` is left alone: the origin knows which scopes *this* operation needs,
+ * and the configured list is only the resource's whole vocabulary.
+ */
+export function withScope(existing: string, scopes: string[]): string {
+  if (scopes.length === 0) return existing;
+  if (/[,\s]scope\s*=/i.test(existing) || /^\s*\w+\s+scope\s*=/i.test(existing)) return existing;
+  return `${existing.trim()}, scope="${scopes.join(" ")}"`;
+}
+
+/**
+ * Returns a copy of a refusal with the discovery challenge added, and the resource's scopes
+ * when the origin named none.
+ */
+export function addDiscoveryChallenge(response: Response, metadataUrl: string, scopes: string[] = []): Response {
   const updated = new Response(response.body, response);
   updated.headers.set(
     "www-authenticate",
-    withResourceMetadata(response.headers.get("www-authenticate"), metadataUrl),
+    withScope(withResourceMetadata(response.headers.get("www-authenticate"), metadataUrl), scopes),
   );
   return updated;
 }

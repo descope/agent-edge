@@ -32,6 +32,11 @@ export interface Env {
    * live site should not start refusing requests because it was upgraded.
    */
   VERIFY_POPPY_SESSION?: string;
+  /**
+   * Validate the access token on API paths and refuse a bad one at the edge, instead of
+   * passing it to the origin and decorating whatever comes back. Off unless set to "true".
+   */
+  VALIDATE_ACCESS_TOKENS?: string;
   /** Local development only: forward to this origin instead of the request's host. */
   UPSTREAM_ORIGIN?: string;
   /** The cookie the front door sets once an agent is signed in. Defaults to DS. */
@@ -74,6 +79,7 @@ export interface Config {
   apiPaths: string[];
   injectLoginHint: boolean;
   verifyPoppySession: boolean;
+  validateAccessTokens: boolean;
   upstreamOrigin?: string;
   agentSessionCookie: string;
 }
@@ -225,6 +231,7 @@ export function loadConfig(env: Env): Config {
     apiPaths: list(env.API_PATHS ?? "/api/*"),
     injectLoginHint: env.INJECT_LOGIN_HINT !== "false",
     verifyPoppySession: env.VERIFY_POPPY_SESSION === "true",
+    validateAccessTokens: env.VALIDATE_ACCESS_TOKENS === "true",
     upstreamOrigin: env.UPSTREAM_ORIGIN ? requiredUrl("UPSTREAM_ORIGIN", env.UPSTREAM_ORIGIN) : undefined,
     agentSessionCookie: env.AGENT_SESSION_COOKIE || "DS",
   };
