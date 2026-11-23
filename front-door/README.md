@@ -19,6 +19,10 @@ An example front door, deployed in front of [Northbound](https://github.com/desc
    - `orders:write`, such as "Place an order for you", requested at step-up. Give these tokens a short lifetime.
 
    Tokens need `email` and `act` (the agent in `act.sub`). If the scopes are on a resource, set `RESOURCE` to it.
+   `RESOURCE` also lets `/step-up` take the user's email from the agent's own access token,
+   so the store no longer has to put one in the payload it signs. The action still has to be
+   signed: an agent that could name its own amount would ask for approval of five dollars and
+   spend four thousand.
 4. **Copy the inbound app's Discovery URL** into `DESCOPE_DISCOVERY_URL`.
 5. **Pick how the front door authenticates.** Set `CLIENT_SECRETS` to a JSON map of client IDs to secrets, or use `private_key_jwt`: ask Descope to enable it, run `npm run generate-key`, save the result as `PRIVATE_KEY_JWK`, and register `https://<front door>/jwks.json` with the inbound app. If `PRIVATE_KEY_JWK` is set, it takes priority.
 

@@ -1,5 +1,3 @@
-import type { Config } from "./config";
-import type { JsonFetcher } from "./agentDetection";
 import {
   asNumber,
   asString,
@@ -10,8 +8,15 @@ import {
   presentedToken,
   sha256Base64url,
   verifyJwtSignature,
+  type JsonFetcher,
   type Jwk,
 } from "./jwt";
+
+/** What validation needs to know about the site: who issues tokens, and what they are for. */
+export interface TokenAudience {
+  issuer: string;
+  resource: string;
+}
 
 /**
  * Access token validation at the edge.
@@ -35,6 +40,8 @@ export interface TokenResult {
   scopes?: string[];
   /** The client the token was issued to, when it names one. */
   clientId?: string;
+  /** The subject's email, when the token carries one. What CIBA needs as a login_hint. */
+  email?: string;
   reason: string;
 }
 
@@ -55,7 +62,7 @@ const PROOF_WINDOW_SECONDS = 60;
  */
 export async function validateAccessToken(
   request: Request,
-  config: Config,
+  audience: TokenAudience,
   fetchJson: JsonFetcher,
   now: number = Math.floor(Date.now() / 1000),
 ): Promise<TokenResult> {
@@ -63,7 +70,7 @@ export async function validateAccessToken(
   if (!presented) return NO_TOKEN;
 
   try {
-    return await validate(request, config, fetchJson, presented.token, now);
+    return await validate(request, audience, fetchJson, presented.token, now);
   } catch (error) {
     return invalid(`validation error: ${String(error)}`);
   }
@@ -71,7 +78,7 @@ export async function validateAccessToken(
 
 async function validate(
   request: Request,
-  config: Config,
+  audience: TokenAudience,
   fetchJson: JsonFetcher,
   token: string,
   now: number,
@@ -82,23 +89,23 @@ async function validate(
   const alg = jwt.header.alg;
   if (!isAlg(alg)) return invalid(`unsupported alg ${String(alg)}`);
 
-  const key = await issuerKey(config, fetchJson, asString(jwt.header.kid));
+  const key = await issuerKey(audience, fetchJson, asString(jwt.header.kid));
   if ("reason" in key) return invalid(key.reason);
 
   if (!(await verifyJwtSignature(jwt, key.jwk, alg))) {
     return invalid("signature does not verify against the issuer's keys");
   }
 
-  if (asString(jwt.claims.iss) !== config.issuer) {
+  if (asString(jwt.claims.iss) !== audience.issuer) {
     return invalid("iss is not this site's issuer");
   }
 
   // RFC 9068: aud is the resource the token is for, and may be a string or an array.
-  const audience = Array.isArray(jwt.claims.aud)
+  const audiences = Array.isArray(jwt.claims.aud)
     ? jwt.claims.aud.filter((value): value is string => typeof value === "string")
     : [asString(jwt.claims.aud)].filter((value): value is string => value !== undefined);
-  if (!audience.includes(config.resourceUrl)) {
-    return invalid(`aud does not include ${config.resourceUrl}`);
+  if (!audiences.includes(audience.resource)) {
+    return invalid(`aud does not include ${audience.resource}`);
   }
 
   const exp = asNumber(jwt.claims.exp);
@@ -123,6 +130,7 @@ async function validate(
     subject: asString(jwt.claims.sub),
     scopes: scope ? scope.split(" ").filter(Boolean) : [],
     ...(asString(jwt.claims.client_id) === undefined ? {} : { clientId: asString(jwt.claims.client_id)! }),
+    ...(asString(jwt.claims.email) === undefined ? {} : { email: asString(jwt.claims.email)! }),
     reason: "access token verified",
   };
 }
@@ -178,15 +186,15 @@ async function verifyDpopProof(
 }
 
 async function issuerKey(
-  config: Config,
+  audience: TokenAudience,
   fetchJson: JsonFetcher,
   kid: string | undefined,
 ): Promise<{ jwk: Jwk } | { reason: string }> {
   // Descope serves an inbound app's metadata under the issuer path, which is where RFC 8414
   // readers that append rather than insert will look for it too.
-  const metadata = await fetchJson(`${config.issuer.replace(/\/$/, "")}/.well-known/oauth-authorization-server`);
+  const metadata = await fetchJson(`${audience.issuer.replace(/\/$/, "")}/.well-known/oauth-authorization-server`);
   if (!isRecord(metadata)) return { reason: "issuer metadata is not an object" };
-  if (asString(metadata.issuer) !== config.issuer) {
+  if (asString(metadata.issuer) !== audience.issuer) {
     return { reason: "issuer metadata names a different issuer" };
   }
 

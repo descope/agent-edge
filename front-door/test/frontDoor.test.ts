@@ -29,6 +29,31 @@ let calls: { url: string; params: URLSearchParams }[];
 let tokenAnswers: { status: number; body: unknown }[];
 /** Whether the fake Descope advertises the device flow. Off by default, like the real inbound app today. */
 let deviceFlow = false;
+const JWKS = `${ISSUER}/.well-known/jwks.json`;
+const RESOURCE = "https://shop.test/api";
+
+/** The issuer's signing key, so a test can mint an access token the front door accepts. */
+const tokenKey = await (async () => {
+  const pair = await crypto.subtle.generateKey(
+    { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const exported = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as Record<string, unknown>;
+  const { d, p, q, dp, dq, qi, key_ops, ext, use, alg, ...publicJwk } = exported;
+  return { privateKey: pair.privateKey, publicJwk: { ...publicJwk, kid: "issuer-1" } };
+})();
+
+async function accessToken(claims: Record<string, unknown> = {}): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const input = `${part({ alg: "RS256", typ: "at+jwt", kid: "issuer-1" })}.${part({
+    iss: ISSUER, aud: RESOURCE, sub: "U1", email: "shopper@example.com", exp: now + 300, iat: now, ...claims,
+  })}`;
+  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", tokenKey.privateKey, new TextEncoder().encode(input));
+  return `${input}.${Buffer.from(new Uint8Array(signature)).toString("base64url")}`;
+}
+
 const realFetch = globalThis.fetch;
 beforeEach(() => {
   calls = [];
@@ -52,6 +77,10 @@ beforeEach(() => {
         verification_uri_complete: "https://auth.test/device?user_code=WDJB-MJHT", expires_in: 600, interval: 5,
       });
     }
+    if (url === `${ISSUER}/.well-known/oauth-authorization-server`) {
+      return Response.json({ issuer: ISSUER, jwks_uri: JWKS });
+    }
+    if (url === JWKS) return Response.json({ keys: [tokenKey.publicJwk] });
     if (url === TOKEN) {
       const answer = tokenAnswers.shift() ?? { status: 400, body: { error: "authorization_pending" } };
       return Response.json(answer.body, { status: answer.status });
@@ -621,4 +650,77 @@ test("the connect page says what the user is approving, and what needs a separat
   // Without step-up configured, it doesn't promise per-order approval.
   const noStepUp = await (await call(new Request("https://front-door.test/"))).text();
   assert.doesNotMatch(noStepUp, /approve that order separately/);
+});
+
+// --- step-up identity from the agent's own token ----------------------------------------
+
+const stepUpEnv = { STEP_UP_SECRET, RESOURCE } as Partial<Env>;
+
+/** Starts a step-up and returns the CIBA call the front door made, if it made one. */
+async function startStepUp(payload: Record<string, unknown>, headers: Record<string, string> = {}) {
+  const request = await stepUpRequest(payload);
+  const response = await call(
+    new Request(`https://front-door.test/step-up?request=${encodeURIComponent(request)}`, { headers }),
+    stepUpEnv,
+  );
+  return { response, ciba: calls.find((c) => c.url === BC) };
+}
+
+test("the email comes from the agent's access token, so the store need not send one", async () => {
+  const { response, ciba } = await startStepUp(
+    { amount: "$42.00", exp: Date.now() + 60_000 },
+    { authorization: `Bearer ${await accessToken()}` },
+  );
+  assert.equal(response.status, 303, await response.clone().text());
+  assert.equal(ciba?.params.get("login_hint"), "shopper@example.com");
+});
+
+test("a signed email still works, for stores that send one", async () => {
+  const { response, ciba } = await startStepUp({
+    email: "signed@example.com", amount: "$42.00", exp: Date.now() + 60_000,
+  });
+  assert.equal(response.status, 303);
+  assert.equal(ciba?.params.get("login_hint"), "signed@example.com");
+});
+
+// A token for one person and a payload naming another is a mistake or an attempt. Either
+// way nobody should get an approval request out of it.
+test("a token and a signed email that disagree send nothing", async () => {
+  const { response, ciba } = await startStepUp(
+    { email: "someone-else@example.com", amount: "$42.00", exp: Date.now() + 60_000 },
+    { authorization: `Bearer ${await accessToken()}` },
+  );
+  assert.equal(response.status, 400);
+  assert.equal(ciba, undefined, "no approval was started");
+});
+
+test("an access token that does not verify is refused, not ignored", async () => {
+  const token = await accessToken();
+  const tampered = `${token.slice(0, -4)}AAAA`;
+  const { response, ciba } = await startStepUp(
+    { amount: "$42.00", exp: Date.now() + 60_000 },
+    { authorization: `Bearer ${tampered}` },
+  );
+  assert.equal(response.status, 401);
+  assert.equal(ciba, undefined);
+});
+
+test("with neither a token nor a signed email, nothing is sent", async () => {
+  const { response, ciba } = await startStepUp({ amount: "$42.00", exp: Date.now() + 60_000 });
+  assert.equal(response.status, 400);
+  assert.equal(ciba, undefined);
+});
+
+// Without a resource there is nothing to check `aud` against, so the token is ignored
+// rather than half-trusted. The signed email still carries the step-up.
+test("without RESOURCE the token is ignored rather than half-trusted", async () => {
+  const request = await stepUpRequest({ email: "signed@example.com", amount: "$42.00", exp: Date.now() + 60_000 });
+  const response = await call(
+    new Request(`https://front-door.test/step-up?request=${encodeURIComponent(request)}`, {
+      headers: { authorization: `Bearer ${await accessToken()}` },
+    }),
+    { STEP_UP_SECRET },
+  );
+  assert.equal(response.status, 303);
+  assert.equal(calls.find((c) => c.url === BC)?.params.get("login_hint"), "signed@example.com");
 });

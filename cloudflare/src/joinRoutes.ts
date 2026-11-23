@@ -100,7 +100,7 @@ async function authorizeStep(
   let scopes: string[] = [];
   let signedIn = false;
   if (request.headers.has("authorization")) {
-    const token = await validateAccessToken(request, config, fetchJson, now);
+    const token = await validateAccessToken(request, { issuer: config.issuer, resource: config.resourceUrl }, fetchJson, now);
     if (token.status !== "valid") {
       return Response.json(
         { error: "invalid_token", error_description: token.reason },

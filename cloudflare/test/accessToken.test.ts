@@ -103,7 +103,7 @@ function request(headers: Record<string, string> = {}, url = REQUEST_URL, method
 test("a valid token yields its subject and scopes", async () => {
   const result = await validateAccessToken(
     request({ authorization: `Bearer ${await accessToken()}` }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -127,7 +127,7 @@ test("a token signed by another key is refused", async () => {
   const publicJwk = { ...stripPrivate(await crypto.subtle.exportKey("jwk", stranger.publicKey)), kid: "issuer-1" };
   const result = await validateAccessToken(
     request({ authorization: `Bearer ${await accessToken()}` }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher({ keys: [publicJwk] }),
     NOW,
   );
@@ -138,7 +138,7 @@ test("a token signed by another key is refused", async () => {
 test("a token from another issuer is refused", async () => {
   const result = await validateAccessToken(
     request({ authorization: `Bearer ${await accessToken({ iss: "https://evil.example" })}` }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -149,7 +149,7 @@ test("a token from another issuer is refused", async () => {
 test("a token for another resource is refused", async () => {
   const result = await validateAccessToken(
     request({ authorization: `Bearer ${await accessToken({ aud: "https://other.example/api" })}` }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -161,7 +161,7 @@ test("a token for another resource is refused", async () => {
 test("aud may be an array containing the resource", async () => {
   const result = await validateAccessToken(
     request({ authorization: `Bearer ${await accessToken({ aud: ["https://other.example", RESOURCE] })}` }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -171,7 +171,7 @@ test("aud may be an array containing the resource", async () => {
 test("an expired token is refused", async () => {
   const result = await validateAccessToken(
     request({ authorization: `Bearer ${await accessToken({ exp: NOW - 1 })}` }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -182,7 +182,7 @@ test("an expired token is refused", async () => {
 test("issuer metadata naming a different issuer is refused", async () => {
   const result = await validateAccessToken(
     request({ authorization: `Bearer ${await accessToken()}` }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher({ issuer: "https://somewhere-else.example" }),
     NOW,
   );
@@ -193,7 +193,7 @@ test("issuer metadata naming a different issuer is refused", async () => {
 test("a token whose kid names no published key is refused", async () => {
   const result = await validateAccessToken(
     request({ authorization: `Bearer ${await accessToken({}, { kid: "rotated-away" })}` }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -204,7 +204,7 @@ test("a token whose kid names no published key is refused", async () => {
 test("an unsupported alg is refused rather than guessed at", async () => {
   const result = await validateAccessToken(
     request({ authorization: `Bearer ${await accessToken({}, { alg: "none" })}` }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -218,7 +218,7 @@ test("a DPoP-bound token with a good proof is valid", async () => {
   const token = await accessToken({ cnf: { jkt: await thumbprint(dpopKey.publicJwk) } });
   const result = await validateAccessToken(
     request({ authorization: `DPoP ${token}`, dpop: await dpopProof(token) }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -232,7 +232,7 @@ test("a DPoP-bound token with no proof is refused", async () => {
   const token = await accessToken({ cnf: { jkt: await thumbprint(dpopKey.publicJwk) } });
   const result = await validateAccessToken(
     request({ authorization: `DPoP ${token}` }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -246,7 +246,7 @@ test("a proof signed by a key the token does not name is refused", async () => {
   const token = await accessToken({ cnf: { jkt: await thumbprint(otherJwk) } });
   const result = await validateAccessToken(
     request({ authorization: `DPoP ${token}`, dpop: await dpopProof(token) }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -258,7 +258,7 @@ test("a proof for a different method or URL is refused", async () => {
   const token = await accessToken({ cnf: { jkt: await thumbprint(dpopKey.publicJwk) } });
   const wrongMethod = await validateAccessToken(
     request({ authorization: `DPoP ${token}`, dpop: await dpopProof(token, { htm: "POST" }) }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -267,7 +267,7 @@ test("a proof for a different method or URL is refused", async () => {
 
   const wrongUrl = await validateAccessToken(
     request({ authorization: `DPoP ${token}`, dpop: await dpopProof(token, { htu: "https://example.com/api/cart" }) }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -279,7 +279,7 @@ test("a proof whose ath is for another token is refused", async () => {
   const token = await accessToken({ cnf: { jkt: await thumbprint(dpopKey.publicJwk) } });
   const result = await validateAccessToken(
     request({ authorization: `DPoP ${token}`, dpop: await dpopProof(token, { ath: "not-the-right-hash" }) }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -291,7 +291,7 @@ test("a stale proof is refused", async () => {
   const token = await accessToken({ cnf: { jkt: await thumbprint(dpopKey.publicJwk) } });
   const result = await validateAccessToken(
     request({ authorization: `DPoP ${token}`, dpop: await dpopProof(token, { iat: NOW - 600 }) }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -304,7 +304,7 @@ test("a proof carrying private key material is refused", async () => {
   const leaky = { ...dpopKey.publicJwk, d: "not-a-real-scalar" };
   const result = await validateAccessToken(
     request({ authorization: `DPoP ${token}`, dpop: await dpopProof(token, {}, leaky) }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     fetcher(),
     NOW,
   );
@@ -315,7 +315,7 @@ test("a proof carrying private key material is refused", async () => {
 test("a fetch failure is a refusal, not a crash", async () => {
   const result = await validateAccessToken(
     request({ authorization: `Bearer ${await accessToken()}` }),
-    config,
+    { issuer: ISSUER, resource: RESOURCE },
     async () => {
       throw new Error("jwks unreachable");
     },

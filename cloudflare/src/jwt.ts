@@ -13,6 +13,9 @@
  */
 export type Jwk = Record<string, unknown>;
 
+/** Fetches and parses JSON. Injected so callers can cache and tests can mock. */
+export type JsonFetcher = (url: string) => Promise<unknown>;
+
 /** Signature algorithms the worker verifies. */
 export type Alg = "ES256" | "ES384" | "ES512" | "PS256" | "PS384" | "PS512" | "RS256" | "RS384" | "RS512";
 
