@@ -101,12 +101,37 @@ Then have your site accept the tokens. See [Accepting the tokens in your backend
 | `SITE_DOMAIN` | The domain people name when they send an agent to you, written into the Poppy document. Defaults to the `RESOURCE_URL` host; set it when that host is not that domain, such as `www.example.com`. |
 | `POPPY_SCOPES`, `POPPY_SCOPE_HINTS` | What each scope lets an agent do, and how consequential it is, written into the Poppy document as JSON |
 | `POPPY_APIS` | APIs the Poppy document advertises, as JSON. Paths are resolved against the host it was asked for. |
+| `BROWSER_JOIN_PATH` | Where to serve the Poppy browser join (section 6), e.g. `/poppy/browser-session`. Unset, nothing is served. Also needs `HINT_SIGNING_SECRET` and the `POPPY_JOIN` Durable Object binding below — with any of the three missing the join stays off rather than half-working. |
 | `VALIDATE_ACCESS_TOKENS` | `true` verifies the access token on `API_PATHS` against your issuer — signature, `iss`, `aud`, expiry, and the DPoP proof when the token is bound — and refuses a bad one with `401 invalid_token` instead of passing it to your origin. A valid one is forwarded as `x-descope-agent-subject` and `x-descope-agent-scope`. Requests with no token pass through, since an API may have public operations. Off by default. Your origin should still validate: this is a filter, not a substitute. |
 | `VERIFY_POPPY_SESSION` | `true` verifies the `poppy-session` header (spec 5.3) and tells the origin which agent, User and Session each request belongs to, in `x-descope-agent-client-id`, `x-descope-agent-session` and `x-descope-agent-user`. A header that fails the check is answered with `400 invalid_session`. Off by default, so upgrading changes nothing until you set it. |
 | `AGENT_SESSION_COOKIE` | The front door's session cookie. Defaults to `DS`. |
 | `UPSTREAM_ORIGIN` | Local testing only: the site to forward to |
 
 The code is in `src/`: `index.ts` handles each request, `agentDetection.ts` finds agents, `discovery.ts` serves `/agents`, the metadata and the Poppy document, and `loginHint.ts` writes the login-page box. If your site already serves `/agents`, remove that route from `index.ts`.
+
+### The browser join
+
+Add `BROWSER_JOIN_PATH`, then declare the Durable Object the join codes live in. A code is
+touched three times in a minute by three parties and step 3 has to see step 2's write, so
+this needs a Durable Object rather than KV:
+
+```toml
+[[durable_objects.bindings]]
+name = "POPPY_JOIN"
+class_name = "PoppyJoin"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PoppyJoin"]
+```
+
+Then put `browser_session_endpoint` in your Poppy document, pointing at `BROWSER_JOIN_PATH`.
+
+When a join completes the Worker sets `__Host-poppy_browser`, a payload signed with
+`HINT_SIGNING_SECRET` naming the agent's `client_id`, the Poppy User ID, the Session id and
+the granted scopes. Your site validates it the same way it validates the agent hint, and
+turns it into whatever a session means to you — the Worker cannot mint your session for you,
+and should not pretend to.
 
 ## Test it
 

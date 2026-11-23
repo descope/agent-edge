@@ -7,6 +7,9 @@ import { cachedJsonFetcher } from "./keyCache";
 import { injectLoginHint } from "./loginHint";
 import { invalidSessionResponse, verifySession, type SessionResult } from "./session";
 import { validateAccessToken, type TokenResult } from "./accessToken";
+import { handleJoin, isJoinPath } from "./joinRoutes";
+
+export { PoppyJoin } from "./joinObject";
 
 /** Headers this worker sets for the origin. Incoming copies are always stripped. */
 const AGENT_HEADERS = [
@@ -53,6 +56,12 @@ export default {
         return protectedResourceMetadata(config);
       }
       if (url.pathname === POPPY_PATH) return poppyDocument(config, url);
+    }
+
+    // The browser join (section 6), served at the edge. It never reaches the origin: the
+    // whole point is that the site needs no code of its own for this.
+    if (isJoinPath(url.pathname, config)) {
+      return handleJoin(request, config, env.POPPY_JOIN!, cachedJsonFetcher(ctx));
     }
 
     let agent: AgentResult;
